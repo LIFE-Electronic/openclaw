@@ -204,7 +204,6 @@ it("prepares granted Luna chat and Decisions without leaking grants across crede
         },
         workspaceFacts: {
           pluginMetadataSnapshot: lease.snapshot.metadataSnapshot,
-          inlineProviderModels: [],
         },
         templateModelRegistry: retainedRegistry,
         configuredRuntimeModels: [],
@@ -286,7 +285,6 @@ it("prepares granted Luna chat and Decisions without leaking grants across crede
           },
           workspaceFacts: {
             pluginMetadataSnapshot: lease.snapshot.metadataSnapshot,
-            inlineProviderModels: [],
           },
           templateModelRegistry: registry,
           configuredRuntimeModels: [],

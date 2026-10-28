@@ -7,7 +7,7 @@ import {
   withOpenClawTestState,
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
-import { createPreparedModelRuntimeSnapshot } from "../prepared-model-runtime.full-catalog.js";
+import { createPreparedModelRuntimeSnapshot } from "../prepared-model-runtime.build.js";
 import type {
   PreparedConfiguredRuntimeModel,
   PreparedModelRuntimeSnapshot,
@@ -88,7 +88,6 @@ function fixture(
       templateModelRegistry: stores.modelRegistry,
       modelCatalog,
       configuredRuntimeModels: rows,
-      inlineProviderModels: [],
     },
     {
       initialAuth: { authStore, authModes: {}, providerAuthLabels: new Map() },
