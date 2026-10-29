@@ -14,6 +14,7 @@ beforeEach(() => {
   vi.doMock("./backup-sqlite-snapshot.js", () => {
     throw new Error("prepared inventory must not load backup discovery");
   });
+  // mock-isolation: Reject the snapshot barrel before its module graph can load.
   vi.doMock("../snapshot/database-backup.js", () => {
     throw new Error("schema inspection must not load snapshot operations");
   });
@@ -70,6 +71,7 @@ it.each(["provided", "empty"] as const)(
 it("discovers supplemental paths only when the prepared list is absent", async () => {
   const { files, known, alias, supplemental } = inventory();
   const discover = vi.fn().mockResolvedValue([alias, supplemental]);
+  // mock-isolation: Supply discovery output without traversing real state.
   vi.doMock("./backup-sqlite-snapshot.js", () => ({ discoverBackupDatabasePaths: discover }));
   const { collectSupplementalStateDatabasePaths } =
     await import("./update-candidate-state.shared.js");
@@ -92,10 +94,13 @@ it.each(["sqlite", "postgres"] as const)(
           : { engine },
       );
     const readPostgres = vi.fn().mockResolvedValue(9);
+    // mock-isolation: Supply a zero header without opening SQLite or acquiring a snapshot.
     vi.doMock("./sqlite-readonly-location.js", () => ({
       inspectSqliteSchemaHeaderInProcess: inspect,
     }));
+    // mock-isolation: Select the physical engine without reading a database image.
     vi.doMock("./database-engine/physical-store.js", () => ({ readBackupEngine: classify }));
+    // mock-isolation: Verify dispatch without starting a worker or connecting to PostgreSQL.
     vi.doMock("./update-candidate-state.postgres.js", () => ({
       readUpdatePostgresStoreVersion: readPostgres,
     }));
@@ -123,9 +128,11 @@ it.each(["sqlite", "postgres"] as const)(
 
 it("reads a versioned SQLite header without importing an engine classifier", async () => {
   const file = path.join(stateDir, "versioned.sqlite");
+  // mock-isolation: Supply a versioned header without opening SQLite or acquiring a snapshot.
   vi.doMock("./sqlite-readonly-location.js", () => ({
     inspectSqliteSchemaHeaderInProcess: vi.fn().mockResolvedValue({ userVersion: 7 }),
   }));
+  // mock-isolation: Reject classification when a nonzero header makes it unnecessary.
   vi.doMock("./database-engine/physical-store.js", () => {
     throw new Error("versioned SQLite must not load physical-engine classification");
   });
