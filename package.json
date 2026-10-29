@@ -1792,6 +1792,7 @@
     "build:plugin-sdk:dts": "node --import ./scripts/tsx.mjs scripts/write-plugin-sdk-entry-dts.ts",
     "build:plugin-sdk:strict-smoke": "node --import ./scripts/tsx.mjs scripts/build-all.mts pluginSdkStrictSmoke",
     "build:strict-smoke": "node --import ./scripts/tsx.mjs scripts/build-all.mts strictSmoke",
+    "catalog:compare-released": "node scripts/catalog-compare-released.mts",
     "channels:catalog:check": "node scripts/write-official-channel-catalog.mjs --check",
     "channels:catalog:gen": "node scripts/write-official-channel-catalog.mjs --write",
     "changed:lanes": "node scripts/changed-lanes.mjs",
