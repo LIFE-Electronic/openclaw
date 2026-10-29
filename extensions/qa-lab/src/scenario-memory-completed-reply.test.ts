@@ -75,6 +75,7 @@ describe("memory scenario completed reply", () => {
     vi.mocked(
       runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
     ).mockImplementationOnce(async ({ dispatcherOptions, replyOptions }) => {
+      await replyOptions?.turnAdoptionLifecycle?.onAdopted?.();
       await replyOptions?.onPartialReply?.({ text: "You usually want" });
       previewSent.resolve();
       await releaseFinal.promise;

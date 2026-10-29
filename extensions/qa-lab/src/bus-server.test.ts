@@ -35,6 +35,7 @@ async function pollQaBus({
   accountId: string;
   cursor: number;
   acknowledgedCursor?: number;
+  adoptedCursor?: number;
   timeoutMs: number;
 }): Promise<QaBusPollResult> {
   const response = await postQaBusJson(baseUrl, "/v1/poll", body);
@@ -104,13 +105,14 @@ describe("qa-bus server", () => {
       state,
       post: (route: string, body: unknown) => postQaBusJson(bus.baseUrl, route, body),
       raw: (route: string, body: string) => postQaBusRawJson(bus.baseUrl, route, body),
-      poll: (cursor = 0, acknowledgedCursor?: number) =>
+      poll: (cursor = 0, acknowledgedCursor?: number, adoptedCursor?: number) =>
         pollQaBus({
           baseUrl: bus.baseUrl,
           accountId: "acct-a",
           timeoutMs: 0,
           cursor,
           acknowledgedCursor,
+          adoptedCursor,
         }),
       inbound: (text: string, id = "target") =>
         state.addInboundMessage({
@@ -249,28 +251,39 @@ describe("qa-bus server", () => {
     expect(state.getSnapshot()).toMatchObject({ events: [], messages: [] });
   });
 
-  it("resumes an account after its last acknowledged cursor when the client restarts", async () => {
-    const { state, poll, inbound } = await fixture();
-    const consumed = inbound("consumed before restart", "first");
-    const firstPoll = await poll();
-    expect(firstPoll.events.map((event) => event.cursor)).toEqual([1]);
+  it.each(["completed", "adopted"])(
+    "resumes an account after its last %s cursor when the client restarts",
+    async (checkpoint) => {
+      const { state, poll, inbound } = await fixture();
+      const consumed = inbound("consumed before restart", "first");
+      const firstPoll = await poll();
+      expect(firstPoll.events.map((event) => event.cursor)).toEqual([1]);
 
-    await poll(firstPoll.cursor, 0);
-    expect(state.getAcknowledgedPollCursor("acct-a")).toBe(0);
-    const unacknowledgedRestart = await poll();
-    expect(messageIds(unacknowledgedRestart)).toEqual([consumed.id]);
+      await poll(firstPoll.cursor, 0);
+      expect(state.getAcknowledgedPollCursor("acct-a")).toBe(0);
+      const unacknowledgedRestart = await poll();
+      expect(messageIds(unacknowledgedRestart)).toEqual([consumed.id]);
 
-    await poll(firstPoll.cursor, firstPoll.cursor);
-    expect(state.getAcknowledgedPollCursor("acct-a")).toBe(firstPoll.cursor);
-    const queuedDuringRestart = inbound("queued during restart", "second");
-    const restartedPoll = await poll();
-    expect(messageIds(restartedPoll)).toEqual([queuedDuringRestart.id]);
+      await poll(
+        firstPoll.cursor,
+        checkpoint === "completed" ? firstPoll.cursor : 0,
+        checkpoint === "adopted" ? firstPoll.cursor : undefined,
+      );
+      expect(state.getAcknowledgedPollCursor("acct-a")).toBe(
+        checkpoint === "completed" ? firstPoll.cursor : 0,
+      );
+      expect(state.resolvePollCursor({ accountId: "other" })).toBe(0);
+      const queuedDuringRestart = inbound("queued during restart", "second");
+      await poll(firstPoll.cursor, 0, 0);
+      const restartedPoll = await poll();
+      expect(messageIds(restartedPoll)).toEqual([queuedDuringRestart.id]);
 
-    state.reset();
-    const queuedAfterReset = inbound("queued after bus reset", "third");
-    const resetPoll = await poll();
-    expect(messageIds(resetPoll)).toEqual([queuedAfterReset.id]);
-  });
+      state.reset();
+      const queuedAfterReset = inbound("queued after bus reset", "third");
+      const resetPoll = await poll();
+      expect(messageIds(resetPoll)).toEqual([queuedAfterReset.id]);
+    },
+  );
 
   it("paginates a burst without advancing past events omitted by the poll limit", async () => {
     const { poll, inbound } = await fixture();
@@ -300,6 +313,18 @@ describe("qa-bus server", () => {
       "/v1/poll",
       { accountId: "acct-a", cursor: 1, acknowledgedCursor: 2, timeoutMs: 0 },
       "acknowledged poll cursor must not exceed the requested poll cursor.",
+      undefined,
+    ],
+    [
+      "/v1/poll",
+      { accountId: "acct-a", cursor: 1, adoptedCursor: 2, timeoutMs: 0 },
+      "adopted poll cursor must not exceed the requested poll cursor.",
+      undefined,
+    ],
+    [
+      "/v1/poll",
+      { accountId: "acct-a", cursor: 1, adoptedCursor: 0.5, timeoutMs: 0 },
+      "adopted poll cursor must be an integer at least 0.",
       undefined,
     ],
     [

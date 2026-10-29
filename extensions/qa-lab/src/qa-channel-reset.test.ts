@@ -28,6 +28,7 @@ describe("QA channel reset processing boundary", () => {
       const preview = state.addOutboundMessage({ accountId, to: "dm:alice", text: "You" });
       // Fetch progress and another account's completion cannot release this turn.
       state.resolvePollCursor({ accountId, cursor: state.getSnapshot().cursor });
+      state.resolvePollCursor({ accountId, adoptedCursor: inboundCursor });
       state.resolvePollCursor({
         accountId: "unrelated",
         acknowledgedCursor: state.getSnapshot().cursor,

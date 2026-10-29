@@ -5,6 +5,7 @@ import {
   createChannelInboundEnvelopeBuilderAsync,
   formatInboundMediaUnavailableText,
   toInboundMediaFactsWithMetadata,
+  type ChannelInboundTurnPlan,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { resolveNativeCommandSessionTargets } from "openclaw/plugin-sdk/command-auth-native";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
@@ -128,6 +129,7 @@ export async function handleQaInbound(params: {
   message: QaBusMessage;
   buildContext?: typeof buildChannelInboundEventContext;
   channelRuntime?: PluginRuntime["channel"];
+  turnAdoptionLifecycle?: ChannelInboundTurnPlan["turnAdoptionLifecycle"];
 }) {
   const channelRuntime = params.channelRuntime ?? getQaChannelRuntime().channel;
   const inbound = params.message;
@@ -422,7 +424,9 @@ export async function handleQaInbound(params: {
       console.warn(`[qa-channel] failed to clear reply preview: ${formatQaErrorForLog(error)}`);
     });
 
+  const queuedDelivery = Promise.withResolvers<boolean>();
   const dispatch = channelRuntime.inbound.dispatch({
+    turnAdoptionLifecycle: params.turnAdoptionLifecycle,
     cfg: params.config,
     channel: params.channelId,
     accountId: params.account.accountId,
@@ -450,6 +454,17 @@ export async function handleQaInbound(params: {
       },
     },
     replyOptions: {
+      queuedDeliveryCorrelations: [
+        {
+          begin: () => (settlement) => {
+            if (settlement !== undefined) {
+              queuedDelivery.resolve(
+                settlement.completed === true && !settlement.failed && !settlement.transportPending,
+              );
+            }
+          },
+        },
+      ],
       allowToolLifecycleWhenProgressHidden: true,
       onPartialReply: async (payload) => {
         await preview.update(payload.text ?? "");
@@ -479,7 +494,16 @@ export async function handleQaInbound(params: {
     },
   });
   try {
-    await dispatch;
+    const result = await dispatch;
+    // Followup admission returns before delivery. Keep preview and completion
+    // ownership until the queue reports its terminal delivery, including retries.
+    if (
+      result.dispatched &&
+      result.dispatchResult.deferredToActiveRun === "followup" &&
+      !(await queuedDelivery.promise)
+    ) {
+      throw new Error("QA queued reply did not complete delivery");
+    }
   } finally {
     await clearPreview();
   }

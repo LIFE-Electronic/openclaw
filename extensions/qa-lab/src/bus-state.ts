@@ -49,6 +49,7 @@ export function createQaBusState() {
   const messages = new Map<string, QaBusMessage>();
   const events: QaBusEvent[] = [];
   const acknowledgedPollCursors = new Map<string, number>();
+  const adoptedPollCursors = new Map<string, number>();
   let cursor = 0;
   let assertWritable = () => {};
   const getSnapshot = () =>
@@ -279,15 +280,24 @@ export function createQaBusState() {
       const accountId = normalizeAccountId(input.accountId);
       const requestedCursor = input.cursor ?? 0;
       const acknowledgedCursor = acknowledgedPollCursors.get(accountId) ?? 0;
+      let adoptedCursor = adoptedPollCursors.get(accountId) ?? 0;
       // Fetch progress and completed work are separate facts. Missing
       // acknowledgement means the consumer has not recorded new completion.
       const completedCursor = input.acknowledgedCursor ?? 0;
       if (completedCursor > acknowledgedCursor && completedCursor <= cursor) {
         acknowledgedPollCursors.set(accountId, completedCursor);
       }
+      if (
+        input.adoptedCursor !== undefined &&
+        input.adoptedCursor > adoptedCursor &&
+        input.adoptedCursor <= cursor
+      ) {
+        adoptedCursor = input.adoptedCursor;
+        adoptedPollCursors.set(accountId, adoptedCursor);
+      }
       // A restarted channel consumer begins at zero. Resume its account cursor
-      // so retained events are not replayed, while still returning unacked work.
-      return requestedCursor === 0 ? acknowledgedCursor : requestedCursor;
+      // after adopted work without claiming that its final delivery completed.
+      return requestedCursor === 0 ? Math.max(acknowledgedCursor, adoptedCursor) : requestedCursor;
     },
     getAcknowledgedPollCursor(accountId?: string) {
       return acknowledgedPollCursors.get(normalizeAccountId(accountId)) ?? 0;
