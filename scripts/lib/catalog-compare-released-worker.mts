@@ -112,6 +112,10 @@ const connectOptions = (input: unknown[]): ConnectOptions =>
     : { port: input[0] as number, host: typeof input[1] === "string" ? input[1] : undefined };
 const isFakeUpstream = ({ host, port }: ConnectOptions) =>
   host === "127.0.0.1" && (Number(port) === ports.http || Number(port) === ports.https);
+// Redirected TLS trusts only the fake upstream's self-signed certificate, pinned by
+// fingerprint because the redirected socket keeps the vendor host name.
+const fakeUpstreamCert = fs.readFileSync(args.cert);
+const fakeUpstreamFingerprint = new crypto.X509Certificate(fakeUpstreamCert).fingerprint256;
 const realNetConnect = net.connect;
 const realTlsConnect = tls.connect;
 const redirectNet = (...input: unknown[]) =>
@@ -133,7 +137,11 @@ tls.connect = ((...input: unknown[]) => {
       host: "127.0.0.1",
       port: ports.https,
       servername: options.servername ?? options.host,
-      rejectUnauthorized: false,
+      ca: fakeUpstreamCert,
+      checkServerIdentity: (_host: string, peer: tls.PeerCertificate) =>
+        peer.fingerprint256 === fakeUpstreamFingerprint
+          ? undefined
+          : new Error("redirected TLS reached a server other than the fake upstream"),
       ALPNProtocols: ["http/1.1"],
     },
     callback,

@@ -46,10 +46,14 @@ async function releaseVersions(): Promise<Array<{ version: string; label: string
       .split(",")
       .map((version) => ({ version: version.trim(), label: "requested" }));
   }
-  const tags = JSON.parse(await npm(["view", "openclaw", "dist-tags", "--json"])) as Record<
-    string,
-    string
-  >;
+  // Under pnpm, npm runs in workspace mode and wraps the answer in a one-entry array.
+  const parsed = JSON.parse(await npm(["view", "openclaw", "dist-tags", "--json"])) as
+    | Record<string, string>
+    | Array<Record<string, string>>;
+  const tags = Array.isArray(parsed) ? (parsed[0] ?? {}) : parsed;
+  if (!DIST_TAGS.some((tag) => tags[tag])) {
+    throw new Error("npm returned no openclaw dist-tags; pass --releases");
+  }
   const byVersion = new Map<string, string[]>();
   for (const tag of DIST_TAGS) {
     if (tags[tag]) {
