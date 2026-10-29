@@ -53,9 +53,9 @@ import { listExternalCliSyncProviderIds } from "./auth-profiles/external-cli-syn
 import { noteCommittedSharedAuthStoreOwnership } from "./auth-profiles/path-resolve.js";
 import { mergeRuntimeExternalProfileReferences } from "./auth-profiles/runtime-external-profile-references.js";
 import { withWorkerAuthProfileWrites } from "./auth-profiles/runtime-scope.js";
-import { preserveResolvedSecretBackedCredentials } from "./auth-profiles/runtime-snapshot-owner.js";
 import { replaceRuntimeAuthProfileStoreSnapshotsAsync } from "./auth-profiles/runtime-snapshots.js";
 import { loadAuthProfileStoreForCatalogAsync } from "./auth-profiles/store-runtime.js";
+import { preserveResolvedSecretBackedCredentials } from "./auth-profiles/store.js";
 import { prepareModelCatalogAuthLabels } from "./model-catalog-auth-labels.js";
 import { PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS } from "./model-catalog-timeouts.js";
 import { resolveImplicitProviderDiscoveryScope } from "./models-config.providers.discovery-scope.js";

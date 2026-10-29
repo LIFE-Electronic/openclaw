@@ -1,18 +1,19 @@
 // Runtime config tests cover plugin runtime config normalization and lookup.
 import { expectDefined } from "@openclaw/normalization-core";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createConfigResolutionFacts,
   getResolvedConfigEnvSecretRef,
   setConfigResolutionFacts,
 } from "../../config/resolution-facts.js";
-import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "../../config/runtime-snapshot.js";
 
+const getRuntimeConfigMock = vi.fn();
 const mutateConfigFileMock = vi.fn();
 const replaceConfigFileMock = vi.fn();
+
+vi.mock("../../config/io.runtime.js", () => ({
+  getRuntimeConfig: () => getRuntimeConfigMock(),
+}));
 
 vi.mock("../../config/mutate.js", () => ({
   mutateConfigFile: (...args: unknown[]) => mutateConfigFileMock(...args),
@@ -23,15 +24,15 @@ const { createRuntimeBase } = await import("./runtime-base.js");
 
 describe("plugin runtime config", () => {
   beforeEach(() => {
+    getRuntimeConfigMock.mockReset();
     mutateConfigFileMock.mockReset();
     replaceConfigFileMock.mockReset();
-    setRuntimeConfigSnapshot({ plugins: {} });
+    getRuntimeConfigMock.mockReturnValue({ plugins: {} });
   });
-  afterEach(clearRuntimeConfigSnapshot);
 
   it("reads config from the runtime snapshot", () => {
     const runtimeConfig = { plugins: { entries: {} } };
-    setRuntimeConfigSnapshot(runtimeConfig);
+    getRuntimeConfigMock.mockReturnValue(runtimeConfig);
 
     expect(createRuntimeBase().config.current()).toBe(runtimeConfig);
   });
@@ -48,7 +49,7 @@ describe("plugin runtime config", () => {
         new Map([[configPath, "FIXTURE_API_KEY"]]),
       ),
     );
-    setRuntimeConfigSnapshot(runtimeConfig);
+    getRuntimeConfigMock.mockReturnValue(runtimeConfig);
 
     const cloned = createRuntimeBase().config.current({ clone: true });
     expectDefined(cloned.env?.vars, "cloned config variables").FIXTURE_API_KEY = "changed";
