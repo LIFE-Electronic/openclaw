@@ -179,7 +179,7 @@ export async function previewUpdateCommand(params: {
       );
     }
 
-    const run = getUpdateRun(params.runId, { env: opts.run?.env });
+    const run = opts.run ? getUpdateRun(params.runId, opts.run) : undefined;
     const targetVersionReason = target.targetVersion
       ? undefined
       : target.updateInstallKind === "git"
@@ -244,17 +244,20 @@ export async function previewUpdateCommand(params: {
       if (preview.notes.length > 0) {
         printSection("Notes:", preview.notes, theme.muted);
       }
-      await printResult(
-        {
-          runId: params.runId,
-          status: "skipped",
-          mode,
-          reason: "dry-run",
-          steps: [],
-          durationMs: 0,
-        },
-        opts,
-      );
+      // Unadmitted previews have no history or report artifact to publish.
+      if (opts.run) {
+        await printResult(
+          {
+            runId: params.runId,
+            status: "skipped",
+            mode,
+            reason: "dry-run",
+            steps: [],
+            durationMs: 0,
+          },
+          opts,
+        );
+      }
     }
   }
 }

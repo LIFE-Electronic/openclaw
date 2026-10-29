@@ -67,8 +67,12 @@ function runMigrationPlan(
   );
 }
 
-function runPreview(root: string, command = "update") {
-  return runUpdateProcess(root, [command, "--dry-run", "--no-restart", "--timeout", "1", "--json"]);
+function runPreview(root: string, command = "update", json = true) {
+  return runUpdateProcess(
+    root,
+    [command, "--dry-run", "--no-restart", "--timeout", "1", ...(json ? ["--json"] : [])],
+    { XDG_CACHE_HOME: path.join(root, "cache"), TMPDIR: path.join(root, "tmp") },
+  );
 }
 
 async function snapshotTree(root: string): Promise<string[]> {
@@ -234,32 +238,49 @@ setLoggerOverride({ file: ${JSON.stringify(path.join(logs, "openclaw.log"))} });
 
   it.each([
     { name: "malformed", command: "update", config: "{ definitely-not-json\n" },
+    { name: "malformed text", command: "update", config: "{ definitely-not-json\n", json: false },
     {
       name: "migration-pending",
       command: "--update",
       config:
         '{ "heartbeat": { "model": "anthropic/claude-3-5-haiku-20241022", "every": "30m" } }\n',
     },
-  ])("keeps $name config and state immutable during preview", async ({ name, command, config }) => {
-    const { root, stateDir } = await createStateFixture(`openclaw-update-${name}-`, config);
-    if (command === "--update") {
-      await writeFixture(
-        path.join(stateDir, "tasks", "runs.sqlite.migrated"),
-        "legacy migration marker\n",
-      );
-      await writeFixture(path.join(stateDir, "tasks", "runs.sqlite-wal"), "legacy WAL marker\n");
-    }
-    const treeBefore = await snapshotTree(root);
-    const result = await runPreview(root, command);
-    expect(result.code, result.stderr).toBe(0);
-    const preview = JSON.parse(result.stdout);
-    expect(preview).toMatchObject({
-      runId: expect.any(String),
-      dryRun: true,
-      ...(command === "update" ? { actions: expect.arrayContaining([expect.any(String)]) } : {}),
-    });
-    await expectUnrecordedPreview(root, treeBefore);
-  });
+  ])(
+    "keeps $name config and state immutable during preview",
+    async ({ name, command, config, json = true }) => {
+      const { root, stateDir } = await createStateFixture(`openclaw-update-${name}-`, config);
+      await fs.mkdir(path.join(root, "cache"));
+      await fs.mkdir(path.join(root, "tmp"));
+      if (command === "--update") {
+        await writeFixture(
+          path.join(stateDir, "tasks", "runs.sqlite.migrated"),
+          "legacy migration marker\n",
+        );
+        await writeFixture(path.join(stateDir, "tasks", "runs.sqlite-wal"), "legacy WAL marker\n");
+      }
+      const treeBefore = await snapshotTree(root);
+      const result = await runPreview(root, command, json);
+      expect(result.code, result.stderr).toBe(0);
+      if (json) {
+        const preview = JSON.parse(result.stdout);
+        expect(preview).toMatchObject({
+          runId: expect.any(String),
+          dryRun: true,
+          ...(command === "update"
+            ? { actions: expect.arrayContaining([expect.any(String)]) }
+            : {}),
+        });
+        expect(preview.run).toBeUndefined();
+        if (name === "malformed") {
+          expect(preview.notes).toContainEqual(expect.stringMatching(/^Would refuse update:/u));
+        }
+      } else {
+        expect(result.stdout).toContain("Update dry-run");
+        expect(result.stdout).toContain("Would refuse update:");
+      }
+      await expectUnrecordedPreview(root, treeBefore);
+    },
+  );
 
   it.each([false, true])(
     "describes Doctor migrations but refuses without staged candidate identity (unknownPlugin=%s)",

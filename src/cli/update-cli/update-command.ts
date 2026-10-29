@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
+import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
 import type { PackageActivationRuntime } from "../../infra/package-update-activation-runtime.types.js";
 import { tryProcessCwd } from "../../infra/safe-cwd.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
@@ -27,6 +29,7 @@ import type { UpdateCommandExecutorOptions } from "./update-command-executor-opt
 import {
   captureUpdateCommandExecutorAuthority,
   type UpdateCommandExecutor,
+  withUpdateCommandExecutor,
 } from "./update-command-executor.js";
 import type { InitializedUpdate } from "./update-command-initialization.js";
 import { preparePackageUpdateRuntime } from "./update-command-node-runtime.js";
@@ -42,6 +45,7 @@ import {
   prepareMutableUpdateRuntime,
   resolveUpdateCommandAdmissionEnv,
   resolveUpdateCommandAdmissionRoot,
+  withUpdatePreviewSignals,
 } from "./update-command-run.js";
 import { preflightUpdateCommandSchemas, previewUpdateCommand } from "./update-command-schema.js";
 import {
@@ -113,7 +117,47 @@ async function updateCommandWithRuntime(
       expectedForeground:
         prepared.controlPlaneUpdateSentinelMeta?.completionOwner === "gateway-restart" || undefined,
     });
-    return await withUpdateDatabaseEngine(env, async () => {
+    const previewInvalidSource = async (configSnapshot: ConfigFileSnapshot) => {
+      assertUpdatePackageActivationAdmission(root, { serviceRoot, dryRun: inputOpts.dryRun });
+      const runId = randomUUID();
+      const updateStepTimeoutMs = prepared.timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS;
+      const failure = createUpdateConfigFailure(configSnapshot);
+      return await withUpdatePreviewSignals(inputOpts, () =>
+        withOwnedManagedUpdateEnv(env, () =>
+          withUpdateInProgressEnv(invocationCwd, () =>
+            withUpdateCommandExecutor(runId, async (executor) => {
+              const target = await resolveUpdateCommandTarget(
+                inputOpts,
+                recoveryState,
+                invocationCwd,
+                prepared,
+                executor,
+                updateStepTimeoutMs,
+                configSnapshot,
+              );
+              if (target) {
+                await previewUpdateCommand({
+                  target,
+                  prepared,
+                  opts: inputOpts,
+                  runId,
+                  invocationCwd,
+                  updateStepTimeoutMs,
+                  preflight: {
+                    packageSchemaPreflight: { incompatible: [], indeterminate: [] },
+                    preflightNotes: [
+                      failure.message.replace(/^Update refused:/u, "Would refuse update:"),
+                    ],
+                    preflightFailures: [],
+                  },
+                });
+              }
+            }),
+          ),
+        ),
+      );
+    };
+    const runWithDatabase = async () => {
       if (inputOpts.dryRun && resolveDebugProxySettings(env).enabled) {
         defaultRuntime.error("Warning: Debug HTTP capture is disabled during update dry runs.");
       }
@@ -161,7 +205,12 @@ async function updateCommandWithRuntime(
         );
       }
       return await execute();
-    });
+    };
+    return await withUpdateDatabaseEngine(
+      env,
+      runWithDatabase,
+      inputOpts.dryRun && !inputOpts.run ? previewInvalidSource : undefined,
+    );
   });
 }
 

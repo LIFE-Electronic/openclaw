@@ -1,8 +1,10 @@
+import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
 import { createUpdateConfigFailure } from "./update-command-config-failure.js";
 
 export async function withUpdateDatabaseEngine<T>(
   env: NodeJS.ProcessEnv,
   run: () => Promise<T>,
+  previewInvalidSource?: (snapshot: ConfigFileSnapshot) => Promise<T>,
 ): Promise<T> {
   const [
     { cloneEnvWithPlatformSemantics },
@@ -26,10 +28,14 @@ export async function withUpdateDatabaseEngine<T>(
     observe: false,
     pluginValidation: "core-only",
   }).readConfigFileSnapshot();
-  if (
-    isConfigReadFailure(snapshot) ||
-    snapshot.issues.some((issue) => issue.errorCode === "CONFIG_SOURCE_INVALID")
-  ) {
+  if (isConfigReadFailure(snapshot)) {
+    throw createUpdateConfigFailure(snapshot);
+  }
+  if (snapshot.issues.some((issue) => issue.errorCode === "CONFIG_SOURCE_INVALID")) {
+    // An incomplete preview can report known facts without selecting an unknown backend.
+    if (previewInvalidSource) {
+      return await previewInvalidSource(snapshot);
+    }
     throw createUpdateConfigFailure(snapshot);
   }
   // Candidate Doctor owns config recovery; admission only needs the authored engine choice.

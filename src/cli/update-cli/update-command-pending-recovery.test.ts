@@ -47,6 +47,7 @@ import {
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery-error.js";
 import { UpdateCommandFailure } from "./update-command-result.js";
 import * as updateResume from "./update-command-resume.js";
+import * as commandRun from "./update-command-run.js";
 import { stubNodeRuntime } from "./update-command-runtime-recovery.test-support.js";
 import { withOwnedManagedUpdateEnv } from "./update-command-service-env.js";
 import { withUpdateFailureTriage } from "./update-command-triage.js";
@@ -222,15 +223,36 @@ describe.skipIf(process.platform === "win32")("pending package activation admiss
     { name: "canonical source behind an alias", alias: true },
     { name: "managed service in another prefix", serviceDrift: true, existingRun: true },
     { name: "caller with another profile", profile: "other", existingRun: true },
+    {
+      name: "malformed preview after service discovery",
+      serviceDrift: true,
+      malformedPreview: true,
+    },
   ])("refuses $name before writable preparation or run admission", async (params) => {
     const f = pendingPackageInvocation(params);
     try {
       f.writers.manager.mockRejectedValue(
         new Error("Package manager selection reached before retained recovery admission"),
       );
-      f.addPending();
-      const before = materialSnapshot(f.home);
-      await expect(updateCommand({ json: true, yes: true })).rejects.toMatchObject({ code: 1 });
+      let before: ReturnType<typeof materialSnapshot> | undefined;
+      const retainPending = () => {
+        f.addPending();
+        before = materialSnapshot(f.home);
+      };
+      if (params.malformedPreview) {
+        fs.writeFileSync(path.join(f.state, "openclaw.json"), "{");
+        const prepare = commandRun.prepareUpdateCommand;
+        vi.spyOn(commandRun, "prepareUpdateCommand").mockImplementation(async (opts) => {
+          const prepared = await prepare(opts);
+          retainPending();
+          return prepared;
+        });
+      } else {
+        retainPending();
+      }
+      await expect(
+        updateCommand({ json: true, yes: true, dryRun: params.malformedPreview }),
+      ).rejects.toMatchObject({ code: 1 });
       expectPendingReport({
         status: "error",
         reason: "update-recovery-pending",
@@ -240,6 +262,7 @@ describe.skipIf(process.platform === "win32")("pending package activation admiss
         expect.stringMatching(/recovery artifacts|publication recovery/i),
       );
       expectNoCalls(...Object.values(f.writers));
+      expect(before).toBeDefined();
       expect(materialSnapshot(f.home)).toEqual(before);
     } finally {
       f.restore();

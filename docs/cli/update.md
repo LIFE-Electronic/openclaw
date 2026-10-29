@@ -1050,6 +1050,10 @@ declared schema support are refused without creating the profile's runtime datab
 Preparation uses the original package spec and owning package manager.
 
 A fresh-profile `--dry-run` leaves the database absent and does not record a run.
+When authored configuration cannot be parsed, the preview reports known installation
+and target facts with `Would refuse update` notes. It does not infer a database engine,
+inspect runtime database state, or record a run or report artifact. Repair the configuration
+before applying an update. The installed updater must contain this preview behavior.
 For package targets, it checks the exact target's Node requirements using the same
 runtime planner as a real update. Text output and JSON `notes` report `Would refuse
 update` when no usable runtime is available, or `Would replace` when the updater can

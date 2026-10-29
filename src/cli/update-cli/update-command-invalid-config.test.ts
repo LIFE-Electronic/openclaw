@@ -131,6 +131,14 @@ it.each(["contention", "cleanup", "data-at-risk", "revoked"] as const)(
 it.each([
   { kind: "unknown key", config: { unknownSetting: true }, affectedKey: "<root>", dryRun: false },
   { kind: "unknown key", config: { unknownSetting: true }, affectedKey: "<root>", dryRun: true },
+  { kind: "malformed source", config: "{", affectedKey: "<root>", dryRun: false },
+  { kind: "malformed source", config: "{", affectedKey: "<root>", dryRun: true },
+  {
+    kind: "unknown engine",
+    config: { database: { engine: "unknown" } },
+    affectedKey: "database.engine",
+    dryRun: false,
+  },
   {
     kind: "invalid core field",
     config: { gateway: { port: "invalid" } },
@@ -142,7 +150,7 @@ it.each([
   async ({ config, dryRun, affectedKey }) => {
     const configPath = process.env.OPENCLAW_CONFIG_PATH!;
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    const original = JSON.stringify(config);
+    const original = typeof config === "string" ? config : JSON.stringify(config);
     fs.writeFileSync(configPath, original);
 
     const update = updateCommand({
@@ -188,7 +196,7 @@ it.each([
   },
 );
 
-it.each(["file", "materialization", "include", "include-syntax"])(
+it.each(["file", "file-preview", "materialization", "include", "include-syntax"])(
   "classifies a config %s failure without changing its source",
   async (failure) => {
     vi.spyOn(installSurface, "resolveUpdateInstallSurface").mockRejectedValue(
@@ -198,7 +206,7 @@ it.each(["file", "materialization", "include", "include-syntax"])(
     const original = failure.startsWith("include")
       ? '{"$include":"./extra.json"}'
       : '{"gateway":{"mode":"local"}}';
-    if (failure === "file") {
+    if (failure.startsWith("file")) {
       fs.mkdirSync(configPath, { recursive: true });
     } else {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -220,6 +228,7 @@ it.each(["file", "materialization", "include", "include-syntax"])(
         json: true,
         yes: true,
         restart: false,
+        dryRun: failure === "file-preview",
       }),
     ).rejects.toMatchObject({ code: 1 });
 
@@ -232,19 +241,18 @@ it.each(["file", "materialization", "include", "include-syntax"])(
             failureFacts: [
               expect.objectContaining({
                 check: failure === "include-syntax" ? "invalid-config" : "config",
-                code:
-                  failure === "file"
-                    ? "EISDIR"
-                    : failure === "include-syntax"
-                      ? "invalid-config"
-                      : "config-read-failed",
+                code: failure.startsWith("file")
+                  ? "EISDIR"
+                  : failure === "include-syntax"
+                    ? "invalid-config"
+                    : "config-read-failed",
               }),
             ],
           }),
         ],
       }),
     );
-    if (failure === "file") {
+    if (failure.startsWith("file")) {
       expect(fs.statSync(configPath).isDirectory()).toBe(true);
     } else {
       expect(fs.readFileSync(configPath, "utf8")).toBe(original);

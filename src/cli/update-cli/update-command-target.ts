@@ -2,6 +2,7 @@ import path from "node:path";
 import { withNodeRuntimePath } from "../../../node-runtime-env.mjs";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { resolveStateDir } from "../../config/paths.js";
+import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
 import { isBunRuntime } from "../../daemon/runtime-binary.js";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 import { createLowDiskSpaceWarning } from "../../infra/disk-space.js";
@@ -100,6 +101,7 @@ export async function resolveUpdateCommandTarget(
   prepared: NonNullable<Awaited<ReturnType<typeof prepareUpdateCommand>>>,
   executor: UpdateCommandExecutor,
   updateStepTimeoutMs: number,
+  previewConfigSnapshot?: ConfigFileSnapshot,
 ) {
   let preparingTarget = true;
   try {
@@ -221,9 +223,16 @@ export async function resolveUpdateCommandTarget(
       }
 
       const readChannelConfig = () =>
-        readUpdateChannelConfig(Boolean(opts.channel), {
-          tolerateReadFailure: usesCandidateUpdateAdmission(opts, installKind),
-        });
+        previewConfigSnapshot
+          ? Promise.resolve({
+              configSnapshot: previewConfigSnapshot,
+              configReadFailure: undefined,
+              legacyConfigPlan: undefined,
+              storedChannel: null,
+            })
+          : readUpdateChannelConfig(Boolean(opts.channel), {
+              tolerateReadFailure: usesCandidateUpdateAdmission(opts, installKind),
+            });
       let channelConfig: Awaited<ReturnType<typeof readUpdateChannelConfig>>;
       let inspectionWarning: string | undefined;
       try {
@@ -245,12 +254,9 @@ export async function resolveUpdateCommandTarget(
       }
       const { configSnapshot, configReadFailure, legacyConfigPlan, storedChannel } = channelConfig;
 
-      if (
-        opts.channel &&
-        !configSnapshot.valid &&
-        !legacyConfigPlan &&
-        !usesCandidateUpdateAdmission(opts, installKind)
-      ) {
+      const channelNeedsConfigRepair =
+        opts.channel && !previewConfigSnapshot && !configSnapshot.valid && !legacyConfigPlan;
+      if (channelNeedsConfigRepair && !usesCandidateUpdateAdmission(opts, installKind)) {
         const failure = createUpdateConfigFailure(configSnapshot, configReadFailure);
         await refuseUpdate(failure.reason, failure.message, failure.failureFacts);
         return undefined;
@@ -288,9 +294,7 @@ export async function resolveUpdateCommandTarget(
         throw configReadFailure;
       }
       if (
-        opts.channel &&
-        !configSnapshot.valid &&
-        !legacyConfigPlan &&
+        channelNeedsConfigRepair &&
         updateInstallKind !== "package" &&
         usesCandidateUpdateAdmission(opts, installKind)
       ) {
