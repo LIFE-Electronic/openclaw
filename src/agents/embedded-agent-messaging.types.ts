@@ -1,4 +1,5 @@
 import type { ReplyPayload } from "../auto-reply/reply-payload.js";
+import type { MediaIdentity } from "./generated-media-identity.js";
 
 export type MessagingToolSend = {
   tool: string;
@@ -10,6 +11,9 @@ export type MessagingToolSend = {
   threadSuppressed?: boolean;
   text?: string;
   mediaUrls?: string[];
+  mediaIdentities?: MediaIdentity[];
+  /** Distinguish repeated sends of one workspace filename; deduplicate replay. */
+  mediaReceiptId?: string;
 };
 
 export type MessagingToolSourceReplyPayload = Pick<

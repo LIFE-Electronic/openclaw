@@ -16,6 +16,9 @@ type CoreGatewayMethodSpec = {
 };
 
 export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
+  { name: "wolper.deliveries.pending", scope: "operator.read" },
+  { name: "wolper.deliveries.status", scope: "operator.read" },
+  { name: "wolper.deliveries.ack", scope: "operator.admin" },
   { name: "health", scope: "operator.read" },
   { name: "diagnostics.stability", scope: "operator.read" },
   { name: "doctor.memory.status", scope: "operator.read" },

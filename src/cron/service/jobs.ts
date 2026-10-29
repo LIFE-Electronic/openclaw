@@ -301,6 +301,12 @@ function assertDeliverySupport(job: Pick<CronJob, "sessionTarget" | "delivery">)
   if (!job.delivery || job.delivery.mode === "none") {
     return;
   }
+  if (job.delivery.mode === "bluehouse") {
+    if (!job.delivery.to?.startsWith("agent:")) {
+      throw new Error("BlueHouse delivery requires an explicit native session key");
+    }
+    return;
+  }
   // Webhook delivery is allowed for any session target
   if (job.delivery.mode === "webhook") {
     const target = normalizeHttpWebhookUrl(job.delivery.to);
@@ -791,7 +797,11 @@ export function applyJobPatch(
       'cron delivery.failureDestination is only supported for sessionTarget="isolated" unless delivery.mode="webhook"',
     );
   }
-  if (job.sessionTarget === "main" && job.delivery?.mode !== "webhook") {
+  if (
+    job.sessionTarget === "main" &&
+    job.delivery?.mode !== "webhook" &&
+    job.delivery?.mode !== "bluehouse"
+  ) {
     job.delivery = undefined;
   }
   if (patch.state) {

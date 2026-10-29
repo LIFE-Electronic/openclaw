@@ -247,6 +247,13 @@ function authorizeGatewayMethod(
 
 export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
+    methods: ["wolper.deliveries.pending", "wolper.deliveries.ack", "wolper.deliveries.status"],
+    loadHandlers: lazyHandlerModule(
+      () => import("./server-methods/wolper-background.js"),
+      (module) => module.wolperBackgroundHandlers,
+    ),
+  }),
+  ...createLazyCoreHandlers({
     methods: ["connect"],
     loadHandlers: loadConnectHandlers,
   }),

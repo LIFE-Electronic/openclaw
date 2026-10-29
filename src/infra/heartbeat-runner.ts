@@ -144,6 +144,12 @@ import {
   resolveSystemEventDeliveryContext,
   type SystemEvent,
 } from "./system-events.js";
+import { publishBackgroundResult } from "./wolper-background-runtime.js";
+import {
+  bluehouseHeartbeatDestination,
+  createBackgroundExecution,
+  type BackgroundExecution,
+} from "./wolper-background.js";
 
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
@@ -1291,6 +1297,7 @@ function selectSystemEventsConsumedByHeartbeat(params: {
 }
 
 export async function runHeartbeatOnce(opts: {
+  backgroundExecution?: BackgroundExecution;
   cfg?: OpenClawConfig;
   agentId?: string;
   sessionKey?: string;
@@ -1413,6 +1420,14 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: preflight.skipReason };
   }
   const { entry, sessionKey, storePath, suppressOriginatingContext } = preflight.session;
+  const backgroundExecution = opts.backgroundExecution ?? createBackgroundExecution("heartbeat");
+  // An explicit external destination remains external. BlueHouse defaults never
+  // consult lastChannel, which may still refer to a configured Telegram bot.
+  const bluehouseDestination = bluehouseHeartbeatDestination(
+    heartbeat?.target,
+    heartbeat?.session,
+    backgroundExecution.destinationSessionKey,
+  );
   const isReplyRunActive =
     opts.deps?.isReplyRunActive ?? ((key: string) => replyRunRegistry.isActive(key));
   if (isReplyRunActive(sessionKey)) {
@@ -1465,7 +1480,10 @@ export async function runHeartbeatOnce(opts: {
     cfg,
     agentId,
     entry,
-    heartbeat: heartbeatForDelivery,
+    heartbeat:
+      heartbeatForDelivery?.target === "bluehouse"
+        ? { ...heartbeatForDelivery, target: "none" }
+        : heartbeatForDelivery,
     currentSessionKey: sessionKey,
     // Isolated heartbeat runs drain system events from their dedicated
     // `:heartbeat` session, not from the base session we peek during preflight.
@@ -1777,6 +1795,8 @@ export async function runHeartbeatOnce(opts: {
     const bootstrapContextMode: "lightweight" | undefined =
       heartbeat?.lightContext === true ? "lightweight" : undefined;
     const replyOpts = {
+      runId: backgroundExecution.runId,
+      backgroundExecution,
       isHeartbeat: true,
       ...(heartbeatModelOverride ? { heartbeatModelOverride } : {}),
       suppressToolErrorWarnings,
@@ -1795,6 +1815,22 @@ export async function runHeartbeatOnce(opts: {
     const replyResult = await getReplyFromConfig(ctx, replyOpts, cfg);
     const heartbeatToolResponse = resolveHeartbeatToolResponseFromReplyResult(replyResult);
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
+    if (bluehouseDestination) {
+      await publishBackgroundResult({
+        execution: backgroundExecution,
+        sourceSessionKey: ctx.SessionKey ?? sessionKey,
+        destinationSessionKey: bluehouseDestination,
+        outcome: replyPayload?.isError ? "failed" : "completed",
+        payloads: heartbeatToolResponse
+          ? heartbeatToolResponse.notify
+            ? [{ text: getHeartbeatToolNotificationText(heartbeatToolResponse) }]
+            : []
+          : replyPayload
+            ? [replyPayload]
+            : [],
+        cfg,
+      });
+    }
     const includeReasoning = heartbeat?.includeReasoning === true;
     const reasoningPayloads = includeReasoning
       ? resolveHeartbeatReasoningPayloads(replyResult).filter((payload) => payload !== replyPayload)
@@ -2094,6 +2130,19 @@ export async function runHeartbeatOnce(opts: {
     return { status: "ran", durationMs: Date.now() - startedAt };
   } catch (err) {
     const reason = formatErrorMessage(err);
+    if (bluehouseDestination && backgroundExecution.origin.trigger === "cron") {
+      // Deferred cron wakes can finish after the scheduler has returned.
+      await publishBackgroundResult({
+        execution: backgroundExecution,
+        sourceSessionKey: runSessionKey,
+        destinationSessionKey: bluehouseDestination,
+        outcome: "failed",
+        payloads: [],
+        cfg,
+      }).catch(() => {
+        log.error("Cron heartbeat failure could not enter the durable delivery queue");
+      });
+    }
     emitHeartbeatEvent({
       status: "failed",
       reason,
@@ -2383,6 +2432,7 @@ export function startHeartbeatRunner(opts: {
             intent,
             reason,
             sessionKey: requestedSessionKey,
+            backgroundExecution: params.backgroundExecution,
             deps: { runtime: state.runtime },
           });
           if (res.status === "skipped" && isRetryableHeartbeatBusySkipReason(res.reason)) {
@@ -2436,6 +2486,7 @@ export function startHeartbeatRunner(opts: {
             cfg: state.cfg,
             agentId: agent.agentId,
             heartbeat: agent.heartbeat,
+            backgroundExecution: params.backgroundExecution,
             source: params.source,
             intent,
             reason,
@@ -2554,6 +2605,7 @@ export function startHeartbeatRunner(opts: {
       agentId: params.agentId,
       sessionKey: params.sessionKey,
       heartbeat: params.heartbeat,
+      backgroundExecution: params.backgroundExecution,
       source: params.source,
       intent: params.intent,
     });

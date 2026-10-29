@@ -329,6 +329,7 @@ export function buildGatewayCronService(params: {
         source: opts?.source ?? "cron",
         intent: opts?.intent ?? "event",
         reason: opts?.reason,
+        backgroundExecution: opts?.backgroundExecution,
         agentId,
         sessionKey,
         heartbeat: sanitizeCronHeartbeatOverride(opts?.heartbeat),
@@ -344,6 +345,7 @@ export function buildGatewayCronService(params: {
         source: opts?.source ?? "cron",
         intent: opts?.intent ?? "event",
         reason: opts?.reason,
+        backgroundExecution: opts?.backgroundExecution,
         agentId,
         sessionKey,
         heartbeat: resolveCronHeartbeatOverride({
@@ -355,6 +357,7 @@ export function buildGatewayCronService(params: {
       });
     },
     runIsolatedAgentJob: async ({
+      execution,
       job,
       message,
       abortSignal,
@@ -365,6 +368,7 @@ export function buildGatewayCronService(params: {
       const sessionKey = resolveCronSessionTargetSessionKey(job.sessionTarget) ?? `cron:${job.id}`;
       try {
         return await runCronIsolatedAgentTurn({
+          execution,
           cfg: runtimeConfig,
           deps: params.deps,
           job,
@@ -493,6 +497,7 @@ export function buildGatewayCronService(params: {
             sessionId: evt.sessionId,
             sessionKey: evt.sessionKey,
             runId: evt.runId,
+            bluehouseDestination: evt.bluehouseDestination,
             runAtMs: evt.runAtMs,
             durationMs: evt.durationMs,
             nextRunAtMs: evt.nextRunAtMs,

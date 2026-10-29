@@ -20,6 +20,7 @@ import {
 } from "../../../context-engine/host-compat.js";
 import { resolveContextEngineOwnerPluginId } from "../../../context-engine/registry.js";
 import type { AssembleResult } from "../../../context-engine/types.js";
+import { getAgentRunContext } from "../../../infra/agent-events.js";
 import { emitTrustedDiagnosticEvent } from "../../../infra/diagnostic-events.js";
 import { resolveDiagnosticModelContentCapturePolicy } from "../../../infra/diagnostic-llm-content.js";
 import {
@@ -1828,6 +1829,13 @@ export async function runEmbeddedAttempt(
       await prewarmSessionFile(params.sessionFile);
       const preparedUserTurnMessage = await params.userTurnTranscriptRecorder?.resolveMessage();
       sessionManager = guardSessionManager(SessionManager.open(params.sessionFile), {
+        heartbeatRunId: getAgentRunContext(params.runId)?.isHeartbeat ? params.runId : undefined,
+        backgroundExecution: getAgentRunContext(params.runId)?.origin
+          ? {
+              runId: params.runId,
+              origin: getAgentRunContext(params.runId)!.origin!,
+            }
+          : undefined,
         agentId: sessionAgentId,
         sessionKey: params.sessionKey,
         config: params.config,

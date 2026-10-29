@@ -1,6 +1,7 @@
 import type { CronDeliveryTrace, CronRunOutcome, CronRunTelemetry } from "../types.js";
 
 export type RunCronAgentTurnResult = {
+  runId?: string;
   /** Last non-empty agent text output (not truncated). */
   outputText?: string;
   /**

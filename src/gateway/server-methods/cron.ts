@@ -12,6 +12,7 @@ import {
   validateCronUpdateParams,
   validateWakeParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveCronDeliveryPreviews } from "../../cron/delivery-preview.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
@@ -19,6 +20,7 @@ import {
   readCronRunLogEntriesPage,
   readCronRunLogEntriesPageAll,
   resolveCronRunLogPath,
+  type CronRunLogEntry,
 } from "../../cron/run-log.js";
 import { applyJobPatch } from "../../cron/service/jobs.js";
 import { isInvalidCronSessionTargetIdError } from "../../cron/session-target.js";
@@ -29,10 +31,32 @@ import {
   resolveTargetPrefixedChannel,
   validateTargetProviderPrefix,
 } from "../../infra/outbound/channel-target-prefix.js";
+import { backgroundDeliveryStatus } from "../../infra/wolper-background.js";
 import { listConfiguredAnnounceChannelIdsForConfig } from "../../plugins/channel-plugin-ids.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import type { GatewayRequestHandlers } from "./types.js";
+
+/** Receipts stay current even when acknowledgement happens after the run log. */
+async function withBackgroundReceipts<T extends { entries: CronRunLogEntry[] }>(page: T) {
+  return {
+    ...page,
+    entries: await Promise.all(
+      page.entries.map(async (entry) => ({
+        ...entry,
+        ...(entry.runId && entry.bluehouseDestination
+          ? {
+              bluehouseDelivery: await backgroundDeliveryStatus(
+                resolveStateDir(),
+                entry.runId,
+                entry.bluehouseDestination,
+              ),
+            }
+          : {}),
+      })),
+    ),
+  };
+}
 
 function listConfiguredAnnounceChannelIds(cfg: OpenClawConfig): string[] {
   return listConfiguredAnnounceChannelIdsForConfig({
@@ -583,7 +607,7 @@ export const cronHandlers: GatewayRequestHandlers = {
         sortDir: p.sortDir,
         jobNameById,
       });
-      respond(true, page, undefined);
+      respond(true, await withBackgroundReceipts(page), undefined);
       return;
     }
     let logPath: string;
@@ -612,6 +636,6 @@ export const cronHandlers: GatewayRequestHandlers = {
       query: p.query,
       sortDir: p.sortDir,
     });
-    respond(true, page, undefined);
+    respond(true, await withBackgroundReceipts(page), undefined);
   },
 };

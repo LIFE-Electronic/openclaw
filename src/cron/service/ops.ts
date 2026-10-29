@@ -788,7 +788,7 @@ async function finishPreparedManualRun(
   try {
     let coreResult: Awaited<ReturnType<typeof executeJobCoreWithTimeout>>;
     try {
-      coreResult = await executeJobCoreWithTimeout(state, executionJob);
+      coreResult = await executeJobCoreWithTimeout(state, executionJob, runId);
     } catch (err) {
       coreResult = { status: "error", error: normalizeCronRunErrorText(err) };
     }
@@ -836,7 +836,8 @@ async function finishPreparedManualRun(
         delivery: coreResult.delivery,
         sessionId: coreResult.sessionId,
         sessionKey: coreResult.sessionKey,
-        runId,
+        runId: coreResult.runId ?? runId,
+        bluehouseDestination: coreResult.bluehouseDestination,
         runAtMs: startedAt,
         durationMs: job.state.lastDurationMs,
         nextRunAtMs: job.state.nextRunAtMs,

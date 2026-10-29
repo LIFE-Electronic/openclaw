@@ -1,5 +1,9 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import {
+  captureMediaIdentities,
+  type MediaIdentity,
+} from "../../agents/generated-media-identity.js";
 import type { AgentToolResult } from "../../agents/runtime/index.js";
 import {
   readPositiveIntegerParam,
@@ -714,7 +718,15 @@ async function handleInternalSourceReplySendAction(
         ? resolveSessionAgentId({ sessionKey: input.sessionKey, config: input.cfg })
         : undefined),
   });
+  // Internal UI sends publish local references. Capture those bytes before
+  // the send result is emitted, rather than re-reading files after the turn.
+  const mediaIdentities = dryRun
+    ? []
+    : await captureMediaIdentities(
+        sourceReply.mediaUrls ?? (sourceReply.mediaUrl ? [sourceReply.mediaUrl] : []),
+      );
   const payload = {
+    mediaIdentities,
     status: "ok",
     deliveryStatus: dryRun ? "dry_run" : "sent",
     channel: INTERNAL_MESSAGE_CHANNEL,
@@ -746,6 +758,7 @@ function buildInternalSourceReplyToolResult(payload: {
   target: string;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   sourceReplySink?: "internal-ui";
+  mediaIdentities?: MediaIdentity[];
   sourceReply: ReplyPayload;
   message?: string;
   mediaUrl?: string;
@@ -758,6 +771,7 @@ function buildInternalSourceReplyToolResult(payload: {
   target: string;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   sourceReplySink?: "internal-ui";
+  mediaIdentities?: MediaIdentity[];
   sourceReply: ReplyPayload;
   message?: string;
   mediaUrl?: string;
@@ -783,6 +797,7 @@ function buildInternalSourceReplyToolResult(payload: {
         : {}),
       ...(payload.sourceReplySink ? { sourceReplySink: payload.sourceReplySink } : {}),
       sourceReply: payload.sourceReply,
+      ...(payload.mediaIdentities?.length ? { mediaIdentities: payload.mediaIdentities } : {}),
       ...(payload.message ? { message: payload.message } : {}),
       ...(payload.mediaUrl ? { mediaUrl: payload.mediaUrl } : {}),
       ...(payload.mediaUrls?.length ? { mediaUrls: payload.mediaUrls } : {}),

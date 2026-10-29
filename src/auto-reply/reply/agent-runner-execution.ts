@@ -1586,6 +1586,7 @@ export async function runAgentTurnWithFallback(params: {
       sessionKey: params.sessionKey,
       verboseLevel: params.resolvedVerboseLevel,
       isHeartbeat: params.isHeartbeat,
+      origin: params.opts?.backgroundExecution?.origin,
       isControlUiVisible: shouldSurfaceToControlUi,
     });
   }

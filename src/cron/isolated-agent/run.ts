@@ -21,6 +21,11 @@ import {
   type SourceDeliveryPlan,
   type SourceDeliveryVisibleDelivery,
 } from "../../infra/outbound/source-delivery-plan.js";
+import { publishBackgroundResult } from "../../infra/wolper-background-runtime.js";
+import {
+  createBackgroundExecution,
+  type BackgroundExecution,
+} from "../../infra/wolper-background.js";
 import { createDiagnosticMessageLifecycle } from "../../logging/message-lifecycle.js";
 import { isCommandLaneTaskTimeoutError } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
@@ -1184,20 +1189,14 @@ async function finalizeCronRun(params: {
  * O(1) — nulls known large fields without deep traversal.  MUST run after the
  * final `persistSessionEntry()` and delivery construction, never before.
  */
-function disposeCronRunContext(params: {
-  sessionId: string;
-  cronSession: MutableCronSession;
-  ownsRunContext: boolean;
-}): void {
-  if (params.ownsRunContext) {
-    clearAgentRunContext(params.sessionId);
-  }
+function disposeCronRunContext(params: { cronSession: MutableCronSession }): void {
   // Drop the in-memory store reference so GC can collect the session registry.
   // The on-disk sessions.json is unaffected.
   (params.cronSession as { store?: unknown }).store = undefined;
 }
 
 export async function runCronIsolatedAgentTurn(params: {
+  execution?: BackgroundExecution;
   cfg: OpenClawConfig;
   deps: CliDeps;
   job: CronJob;
@@ -1210,6 +1209,12 @@ export async function runCronIsolatedAgentTurn(params: {
   agentId?: string;
   lane?: string;
 }): Promise<RunCronAgentTurnResult> {
+  const execution =
+    params.execution ?? createBackgroundExecution("cron", params.job.id, false, params.job.name);
+  const destination =
+    params.job.delivery?.mode === "bluehouse"
+      ? params.job.delivery.to?.trim() || "agent:main:main"
+      : undefined;
   const abortSignal = params.abortSignal ?? params.signal;
   const isAborted = () => abortSignal?.aborted === true;
   const abortReason = () => {
@@ -1248,10 +1253,6 @@ export async function runCronIsolatedAgentTurn(params: {
     });
   };
 
-  // Capture the sessionId before the try block so the finally block clears
-  // the correct context even if adoptCronRunSessionMetadata() rotates it.
-  const initialSessionId = prepared.context.cronSession.sessionEntry.sessionId;
-
   const turnStartedAtMs = Date.now();
   const diagnosticsEnabled = isDiagnosticsEnabled(params.cfg);
   const messageLifecycle = createDiagnosticMessageLifecycle({
@@ -1269,7 +1270,8 @@ export async function runCronIsolatedAgentTurn(params: {
   let outcomeError: string | undefined;
   try {
     const { executeCronRun } = await loadCronExecutorRuntime();
-    const execution = await executeCronRun({
+    const executionResult = await executeCronRun({
+      execution,
       cfg: params.cfg,
       cfgWithAgentDefaults: prepared.context.cfgWithAgentDefaults,
       job: params.job,
@@ -1316,7 +1318,7 @@ export async function runCronIsolatedAgentTurn(params: {
     }
     const finalized = await finalizeCronRun({
       prepared: prepared.context,
-      execution,
+      execution: executionResult,
       abortReason,
       isAborted,
     });
@@ -1324,7 +1326,17 @@ export async function runCronIsolatedAgentTurn(params: {
       outcome = "error";
       outcomeError = finalized.error;
     }
-    return finalized;
+    if (destination && finalized.status !== "error") {
+      await publishBackgroundResult({
+        execution,
+        sourceSessionKey: prepared.context.runSessionKey,
+        destinationSessionKey: destination,
+        outcome: "completed",
+        payloads: executionResult.runResult.payloads ?? [],
+        cfg: params.cfg,
+      });
+    }
+    return { ...finalized, runId: execution.runId };
   } catch (err) {
     const isCronLaneTimeout = isAborted() || isCronNestedLaneTaskTimeoutError(err);
     const error = isCronLaneTimeout ? abortReason() : String(err);
@@ -1349,13 +1361,12 @@ export async function runCronIsolatedAgentTurn(params: {
       ...finalSessionRef,
       error: outcomeError,
     });
+    clearAgentRunContext(execution.runId);
     // Release runtime references after the run completes (success or failure).
     // The session entry has already been persisted to disk by this point,
     // so the in-memory store and run context can be safely dropped.
     disposeCronRunContext({
-      sessionId: initialSessionId,
       cronSession: prepared.context.cronSession,
-      ownsRunContext: params.job.sessionTarget === "isolated",
     });
   }
 }

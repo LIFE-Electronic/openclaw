@@ -109,6 +109,7 @@ export type AgentEventPayload = {
 };
 
 export type AgentRunContext = {
+  origin?: import("./wolper-background.js").WolperOrigin;
   sessionKey?: string;
   verboseLevel?: VerboseLevel;
   isHeartbeat?: boolean;
@@ -151,6 +152,9 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
   }
   if (context.sessionKey && existing.sessionKey !== context.sessionKey) {
     existing.sessionKey = context.sessionKey;
+  }
+  if (context.origin) {
+    existing.origin = context.origin;
   }
   if (context.verboseLevel && existing.verboseLevel !== context.verboseLevel) {
     existing.verboseLevel = context.verboseLevel;

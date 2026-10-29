@@ -270,7 +270,16 @@ const CronDeliveryWebhookSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const CronDeliveryBlueHouseSchema = Type.Object(
+  {
+    mode: Type.Literal("bluehouse"),
+    to: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
 export const CronDeliverySchema = Type.Union([
+  CronDeliveryBlueHouseSchema,
   CronDeliveryNoopSchema,
   CronDeliveryAnnounceSchema,
   CronDeliveryWebhookSchema,
@@ -279,7 +288,12 @@ export const CronDeliverySchema = Type.Union([
 export const CronDeliveryPatchSchema = Type.Object(
   {
     mode: Type.Optional(
-      Type.Union([Type.Literal("none"), Type.Literal("announce"), Type.Literal("webhook")]),
+      Type.Union([
+        Type.Literal("none"),
+        Type.Literal("announce"),
+        Type.Literal("webhook"),
+        Type.Literal("bluehouse"),
+      ]),
     ),
     ...CronDeliverySharedProperties,
     to: Type.Optional(Type.String()),

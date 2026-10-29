@@ -49,6 +49,9 @@ function resolveAnnounceChannel(params: {
 
 export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
   const delivery = job.delivery;
+  if (delivery?.mode === "bluehouse") {
+    return { mode: "none", source: "delivery", requested: false };
+  }
   const hasDelivery = delivery && typeof delivery === "object";
   const rawMode = hasDelivery ? (delivery as { mode?: unknown }).mode : undefined;
   const normalizedMode =

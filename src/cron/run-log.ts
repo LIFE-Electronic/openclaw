@@ -40,6 +40,7 @@ export type CronRunLogEntry = {
   sessionId?: string;
   sessionKey?: string;
   runId?: string;
+  bluehouseDestination?: string;
   runAtMs?: number;
   durationMs?: number;
   nextRunAtMs?: number;
@@ -351,6 +352,8 @@ function parseAllRunLogEntries(raw: string, opts?: { jobId?: string }): CronRunL
         errorReason: normalizedErrorReason,
         summary: obj.summary,
         runId: typeof obj.runId === "string" && obj.runId.trim() ? obj.runId : undefined,
+        bluehouseDestination:
+          typeof obj.bluehouseDestination === "string" ? obj.bluehouseDestination : undefined,
         diagnostics: normalizeCronRunDiagnostics(obj.diagnostics),
         runAtMs: obj.runAtMs,
         durationMs: obj.durationMs,
