@@ -39,17 +39,20 @@ const repositoryScriptEntries = [
   "scripts/perf/anthropic-request-construction.ts!",
   "scripts/perf/auth-file-watch-events-measure.ts!",
   "scripts/perf/catalog-worker-churn-measure.mjs!",
+  "scripts/perf/code-mode-control-schema-measure.ts!",
   "scripts/perf/code-mode-result-load-measure.ts!",
   "scripts/perf/completion-payload-bytes-measure.ts!",
   "scripts/perf/connect-profile-binding-measure.ts!",
   "scripts/perf/cron-reader-reuse-measure.ts!",
   "scripts/perf/cron-registry-read-measure.ts!",
   "scripts/perf/doctor-session-manifests.ts!",
+  "scripts/perf/history-model-projection-measure.ts!",
   "scripts/perf/inspection-read-admission.ts!",
   "scripts/perf/local-workspace-refresh-measure.ts!",
   "scripts/perf/local-workspace-request-bytes-measure.ts!",
   "scripts/perf/node-worker-churn-measure.mjs!",
   "scripts/perf/placement-retirement-replies.mjs!",
+  "scripts/perf/plugin-state-authority-receipts.ts!",
   "scripts/perf/plugin-state-claims-measure.ts!",
   "scripts/perf/reef-state-request-bytes.ts!",
   "scripts/perf/schema-crossing-measure.ts!",
@@ -896,6 +899,8 @@ const repositoryScriptEntries = [
   "scripts/perf/branch-rotation-measure-preload.ts!",
   // The plugin scope census is loaded by the documented stress --gateway-preload option.
   "scripts/perf/plugin-scope-attribution-preload.mjs!",
+  // The documented stress --gateway-preload option selects this main-isolate probe.
+  "scripts/perf/main-code-space-preload.mjs!",
   // The documented placement shutdown reproduction is invoked as a standalone CLI.
   "scripts/perf/worker-placement-reconcile-shutdown-measure.ts!",
   // Their headers document these standalone measurement CLIs by path.
