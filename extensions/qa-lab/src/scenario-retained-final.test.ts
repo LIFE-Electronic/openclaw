@@ -176,6 +176,10 @@ async function startRetainedFinalScenario(fault: FinalFault = {}) {
     expireDeadline: () => {
       deadlineExpired = true;
     },
+    async stopGateway() {
+      abort();
+      return await gatewaySettled;
+    },
     async sendControl() {
       await injectQaBusInboundMessage({
         baseUrl,
@@ -198,7 +202,7 @@ async function startRetainedFinalScenario(fault: FinalFault = {}) {
       const gatewayError = await gatewaySettled;
       await closeQaHttpServer(proxy);
       await bus.stop();
-      if (gatewayError) {
+      if (gatewayError && fault !== "failed-send") {
         throw gatewayError;
       }
     },
@@ -284,9 +288,27 @@ describe("failed-tool scenario retained final", () => {
 
   const missingReply = "expected exactly one failure-honest reply, got []";
   const wrongRoute = "retained reply has the wrong route";
+
+  it("keeps a failed final send incomplete after clearing its preview", async () => {
+    await using harness = await startRetainedFinalScenario("failed-send");
+    await harness.previewSent;
+    await harness.waitObserved;
+    harness.releaseDelete();
+    harness.releaseFinal();
+    harness.startFinal();
+    await harness.finalStarted;
+    const gatewayError = await harness.stopGateway();
+    expect(harness.completed()).toBe(false);
+    expect(gatewayError).toEqual(new Error("QA reply did not complete delivery"));
+    expect(
+      harness.state.getSnapshot().messages.filter((m) => m.direction === "outbound" && !m.deleted),
+    ).toEqual([]);
+    harness.expireDeadline();
+    expect(await harness.result).toMatchObject({ status: "fail" });
+  });
+
   it.each<[string, FinalFault, string]>([
     ["preview-only with processing ack", "preview-only", missingReply],
-    ["deleted preview without final", "failed-send", missingReply],
     ["duplicate retained final", "duplicate", "expected exactly one failure-honest reply"],
     [
       "typed error with matching text",
