@@ -63,18 +63,10 @@ async function releaseVersions(): Promise<Array<{ version: string; label: string
   return [...byVersion].map(([version, labels]) => ({ version, label: labels.join(", ") }));
 }
 
-// openclaw@<v> plus every official external provider plugin at the same version,
-// as the release itself lists them. Cached across runs; scripts never run.
-async function installRelease(version: string): Promise<string> {
-  const dir = path.join(CACHE_ROOT, version);
-  if (fs.existsSync(path.join(dir, ".installed"))) {
-    return dir;
-  }
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "package.json"), '{ "private": true }\n');
-  const install = ["install", "--ignore-scripts", "--no-audit", "--no-fund"];
-  await npm([...install, `openclaw@${version}`], dir);
+type Install = { dir: string; omitted: string[] };
+type Marker = { plugins: string[]; omitted: string[] };
+
+function officialProviders(dir: string, version: string): string[] {
   const dist = path.join(dir, "node_modules/openclaw/dist");
   const listing = fs
     .readdirSync(dist)
@@ -87,27 +79,70 @@ async function installRelease(version: string): Promise<string> {
   if (!listing) {
     throw new Error(`openclaw@${version}: official external provider catalog not found in ${dist}`);
   }
-  const names = [
+  return [
     ...new Set(
       [
         ...fs.readFileSync(listing, "utf8").matchAll(/"npmSpec": "(@openclaw\/[\w.-]+-provider)"/g),
-      ].map((match) => match[1]),
+      ].map((match) => match[1] ?? ""),
     ),
-  ];
-  const plugins = (
-    await Promise.all(
-      names.map((name) =>
-        npm(["view", `${name}@${version}`, "version"]).then(
-          (out) => (out.trim() ? [name] : []),
-          () => [],
-        ),
-      ),
-    )
-  ).flat();
+  ].toSorted((a, b) => a.localeCompare(b));
+}
+
+// A cached install is trusted only when its marker accounts for every provider the
+// release lists and every installed plugin is at the release version.
+function cachedInstall(dir: string, version: string): Install | undefined {
+  try {
+    const marker = JSON.parse(fs.readFileSync(path.join(dir, ".installed"), "utf8")) as Marker;
+    const accounted = [...marker.plugins, ...marker.omitted].toSorted((a, b) => a.localeCompare(b));
+    const complete =
+      JSON.stringify(accounted) === JSON.stringify(officialProviders(dir, version)) &&
+      marker.plugins.every((name) => {
+        const manifest = path.join(dir, "node_modules", name, "package.json");
+        return (
+          (JSON.parse(fs.readFileSync(manifest, "utf8")) as { version?: string }).version ===
+          version
+        );
+      });
+    return complete ? { dir, omitted: marker.omitted } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Only npm's E404 means "not published at this version"; any other lookup failure
+// (timeout, auth, registry 5xx) fails setup instead of silently dropping the provider.
+async function isPublished(name: string, version: string): Promise<boolean> {
+  try {
+    return (await npm(["view", `${name}@${version}`, "version"])).trim() !== "";
+  } catch (error) {
+    if (/\bE404\b/.test(String((error as { stderr?: unknown }).stderr))) {
+      return false;
+    }
+    throw new Error(`npm view ${name}@${version} failed`, { cause: error });
+  }
+}
+
+// openclaw@<v> plus every official external provider plugin at the same version,
+// as the release itself lists them. Cached across runs; scripts never run.
+async function installRelease(version: string): Promise<Install> {
+  const dir = path.join(CACHE_ROOT, version);
+  const cached = cachedInstall(dir, version);
+  if (cached) {
+    return cached;
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), '{ "private": true }\n');
+  const install = ["install", "--ignore-scripts", "--no-audit", "--no-fund"];
+  await npm([...install, `openclaw@${version}`], dir);
+  const names = officialProviders(dir, version);
+  const published = await Promise.all(names.map((name) => isPublished(name, version)));
+  const plugins = names.filter((_, index) => published[index]);
+  const omitted = names.filter((_, index) => !published[index]);
   await npm([...install, ...plugins.map((name) => `${name}@${version}`)], dir);
-  const missing = names.filter((name) => !plugins.includes(name));
-  fs.writeFileSync(path.join(dir, ".installed"), JSON.stringify({ plugins, missing }, null, 2));
-  return dir;
+  const marker: Marker = { plugins, omitted };
+  fs.writeFileSync(path.join(dir, ".installed"), JSON.stringify(marker, null, 2));
+  return { dir, omitted };
 }
 
 async function selfSignedCert(dir: string): Promise<{ cert: string; key: string }> {
@@ -211,16 +246,14 @@ try {
   const releases = await releaseVersions();
   const cert = await selfSignedCert(runDir);
   const installs = await Promise.all(
-    releases.map(async ({ version, label }) => ({
-      version,
-      label,
-      dir: await installRelease(version),
-    })),
+    releases.map(async ({ version, label }) =>
+      Object.assign(await installRelease(version), { version, label }),
+    ),
   );
   const installedAt = performance.now();
   const compared = [baseline, candidate];
   const results = await Promise.all(
-    installs.map(async ({ version, label, dir }) => {
+    installs.map(async ({ version, label, dir, omitted }) => {
       const [before, after] = await Promise.all([
         readRelease("baseline", dir, baseline, compared, runDir, cert),
         readRelease("candidate", dir, candidate, compared, runDir, cert),
@@ -230,6 +263,7 @@ try {
         release: version,
         label,
         changes,
+        omittedProviders: omitted,
         rows: Math.max(before.rows.length, after.rows.length),
       };
     }),

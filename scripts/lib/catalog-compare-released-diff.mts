@@ -107,13 +107,21 @@ function show(value: unknown): string {
 
 /** One line per changed field; an added or dropped row is one line (`--json` keeps its fields). */
 export function formatReport(
-  releases: Array<{ release: string; label: string; changes: Change[] }>,
+  releases: Array<{
+    release: string;
+    label: string;
+    changes: Change[];
+    omittedProviders?: string[];
+  }>,
 ): string {
   const lines: string[] = [];
-  for (const { release, label, changes } of releases) {
+  for (const { release, label, changes, omittedProviders = [] } of releases) {
     lines.push(
       `${release} (${label}): ${changes.length === 0 ? "no behavior change" : `${changes.length} changed fields`}`,
     );
+    if (omittedProviders.length > 0) {
+      lines.push(`  not published at ${release}, not compared: ${omittedProviders.join(", ")}`);
+    }
     const rowChanges = new Map(
       changes.filter((change) => change.field === "row").map((change) => [change.model, change]),
     );
