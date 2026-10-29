@@ -106,8 +106,6 @@ it("L6/Y1/Y2: Gateway usage protects read skills, and post-turn cleanup is daily
     startGatewayMaintenanceTimers({
       ...createGatewayMaintenanceStateForTest(),
       getRuntimeConfig: () => config,
-      runWorktreeGc: async () => undefined,
-      runManagedOutgoingMediaGc: async () => undefined,
     });
   // Observe the real returned lifetime without replacing the detached work implementation.
   const detached = vi.spyOn(admission, "runWithGatewayDetachedWorkContinuation");
@@ -310,8 +308,6 @@ it.each([
       timers = startGatewayMaintenanceTimers({
         ...createGatewayMaintenanceStateForTest(),
         getRuntimeConfig: () => config,
-        runWorktreeGc: async () => undefined,
-        runManagedOutgoingMediaGc: async () => undefined,
       });
     }
     await runAgentEndSideEffectsAsync({
@@ -432,8 +428,6 @@ it("Y3: daily maintenance diets one oversized learned skill as a restorable cura
         timers = startGatewayMaintenanceTimers({
           ...createGatewayMaintenanceStateForTest(),
           getRuntimeConfig: () => config,
-          runWorktreeGc: async () => undefined,
-          runManagedOutgoingMediaGc: async () => undefined,
         });
         await runAgentEndSideEffectsAsync({
           event: { messages: [], success: true },

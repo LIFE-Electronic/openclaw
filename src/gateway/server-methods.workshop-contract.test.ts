@@ -168,7 +168,7 @@ describe("Workshop through Gateway authorization and dispatch", () => {
     for (const [id, reason] of [
       ["deploy-notes-1a2b3c4d", "attach the receipt"],
       ["deploy-notes-5e6f7a8b", "unused idea"],
-    ]) {
+    ] as const) {
       await fs.mkdir(path.join(root, ".drafts", id), { recursive: true });
       await fs.writeFile(path.join(root, ".drafts", id, ".reason"), `${reason}\n`);
       await fs.writeFile(path.join(root, ".drafts", id, "SKILL.md"), drafted);
