@@ -16,9 +16,6 @@ type CoreGatewayMethodSpec = {
 };
 
 export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
-  { name: "wolper.deliveries.pending", scope: "operator.read" },
-  { name: "wolper.deliveries.status", scope: "operator.read" },
-  { name: "wolper.deliveries.ack", scope: "operator.admin" },
   { name: "health", scope: "operator.read" },
   { name: "diagnostics.stability", scope: "operator.read" },
   { name: "doctor.memory.status", scope: "operator.read" },
@@ -214,6 +211,9 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "nativeHook.invoke", scope: "operator.admin", advertise: false },
   { name: "web.login.start", scope: "operator.admin", advertise: false },
   { name: "web.login.wait", scope: "operator.admin", advertise: false },
+  { name: "wolper.deliveries.pending", scope: "operator.read" },
+  { name: "wolper.deliveries.status", scope: "operator.read" },
+  { name: "wolper.deliveries.ack", scope: "operator.admin" },
 ] as const;
 
 const CORE_GATEWAY_METHOD_SPEC_BY_NAME: ReadonlyMap<string, CoreGatewayMethodSpec> = new Map(

@@ -560,7 +560,7 @@ export type CronPayload =
     };
 
 export type CronDelivery = {
-  mode: "none" | "announce" | "webhook";
+  mode: "none" | "announce" | "webhook" | "bluehouse";
   channel?: string;
   to?: string;
   accountId?: string;

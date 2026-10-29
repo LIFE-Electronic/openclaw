@@ -153,7 +153,10 @@ describe("cron controller", () => {
     expect(normalized.deliveryMode).toBe("announce");
   });
 
-  it("forwards webhook delivery in cron.add payload", async () => {
+  it.each([
+    ["webhook", "https://example.invalid/cron"],
+    ["bluehouse", "agent:main:acceptance"],
+  ] as const)("forwards %s delivery in cron.add payload", async (mode, to) => {
     const request = vi.fn(async (method: string, _payload?: unknown) => {
       if (method === "cron.add") {
         return { id: "job-1" };
@@ -181,8 +184,8 @@ describe("cron controller", () => {
         wakeMode: "next-heartbeat",
         payloadKind: "agentTurn",
         payloadText: "run this",
-        deliveryMode: "webhook",
-        deliveryTo: "https://example.invalid/cron",
+        deliveryMode: mode,
+        deliveryTo: to,
       },
     });
 
@@ -195,9 +198,12 @@ describe("cron controller", () => {
       name: "webhook job",
     });
     expectNestedRecordFields(payload, "delivery", {
-      mode: "webhook",
-      to: "https://example.invalid/cron",
+      mode,
+      to,
     });
+    if (mode === "bluehouse") {
+      expect(payload.delivery).toEqual({ mode, to });
+    }
   });
 
   it("forwards sessionKey and delivery accountId in cron.add payload", async () => {

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const directory = fileURLToPath(new URL("./", import.meta.url));
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const tests = readdirSync(directory)
-  .filter((name) => name.endsWith(".test.mjs"))
+  .filter((name) => name.endsWith(".node-test.mjs"))
   .toSorted();
 const result = spawnSync(process.execPath, ["--experimental-strip-types", "--test", ...tests], {
   cwd: directory,

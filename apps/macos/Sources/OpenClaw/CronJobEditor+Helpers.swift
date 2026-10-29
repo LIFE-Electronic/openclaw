@@ -53,7 +53,8 @@ extension CronJobEditor {
         }
 
         if let delivery = job.delivery {
-            self.deliveryMode = delivery.mode == .announce ? .announce : .none
+            self.deliveryMode = delivery.mode == .bluehouse ? .bluehouse :
+                (delivery.mode == .announce ? .announce : .none)
             let trimmed = (delivery.channel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             self.channel = trimmed.isEmpty ? "last" : trimmed
             self.to = delivery.to ?? ""
@@ -99,7 +100,7 @@ extension CronJobEditor {
             root["agentId"] = NSNull()
         }
 
-        if self.isIsolatedLikeSessionTarget {
+        if self.isIsolatedLikeSessionTarget || self.deliveryMode == .bluehouse {
             root["delivery"] = self.buildDelivery()
         }
 
@@ -107,6 +108,11 @@ extension CronJobEditor {
     }
 
     func buildDelivery() -> [String: Any] {
+        // BlueHouse addresses a session; channel-only delivery fields are invalid.
+        if self.deliveryMode == .bluehouse {
+            let destination = self.to.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ["mode": "bluehouse", "to": destination.isEmpty ? "agent:main:main" : destination]
+        }
         let mode = self.deliveryMode == .announce ? "announce" : "none"
         var delivery: [String: Any] = ["mode": mode]
         if self.deliveryMode == .announce {

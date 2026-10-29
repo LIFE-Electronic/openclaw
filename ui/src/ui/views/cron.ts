@@ -1014,87 +1014,107 @@ export function renderCron(props: CronProps) {
                             `
                           : nothing}
                         <option value="webhook">${t("cron.form.webhookPost")}</option>
+                        <option value="bluehouse">BlueHouse</option>
                         <option value="none">${t("cron.form.noneInternal")}</option>
                       </select>
                       <div class="cron-help">${t("cron.form.deliveryHelp")}</div>
                     </label>
-                    ${selectedDeliveryMode !== "none"
-                      ? html`
-                          <label
-                            class="field ${selectedDeliveryMode === "webhook" ? "cron-span-2" : ""}"
-                          >
-                            ${renderFieldLabel(
-                              selectedDeliveryMode === "webhook"
-                                ? t("cron.form.webhookUrl")
-                                : t("cron.form.channel"),
-                              selectedDeliveryMode === "webhook",
-                            )}
-                            ${selectedDeliveryMode === "webhook"
-                              ? html`
-                                  <input
-                                    id="cron-delivery-to"
-                                    .value=${props.form.deliveryTo}
-                                    list="cron-delivery-to-suggestions"
-                                    aria-invalid=${props.fieldErrors.deliveryTo ? "true" : "false"}
-                                    aria-describedby=${ifDefined(
-                                      props.fieldErrors.deliveryTo
-                                        ? errorIdForField("deliveryTo")
-                                        : undefined,
-                                    )}
-                                    @input=${(e: Event) =>
-                                      props.onFormChange({
-                                        deliveryTo: (e.target as HTMLInputElement).value,
-                                      })}
-                                    placeholder=${t("cron.form.webhookPlaceholder")}
-                                  />
-                                `
-                              : html`
-                                  <select
-                                    id="cron-delivery-channel"
-                                    .value=${props.form.deliveryChannel || "last"}
-                                    @change=${(e: Event) =>
-                                      props.onFormChange({
-                                        deliveryChannel: (e.target as HTMLSelectElement).value,
-                                      })}
-                                  >
-                                    ${channelOptions.map(
-                                      (channel) =>
-                                        html`<option value=${channel}>
-                                          ${resolveChannelLabel(props, channel)}
-                                        </option>`,
-                                    )}
-                                  </select>
-                                `}
+                    ${selectedDeliveryMode === "bluehouse"
+                      ? html`<label class="field cron-span-2">
+                          ${renderFieldLabel("Session key")}
+                          <input
+                            id="cron-delivery-to"
+                            .value=${props.form.deliveryTo}
+                            @input=${(e: Event) =>
+                              props.onFormChange({
+                                deliveryTo: (e.target as HTMLInputElement).value,
+                              })}
+                            placeholder="agent:main:main"
+                          />
+                        </label>`
+                      : selectedDeliveryMode !== "none"
+                        ? html`
+                            <label
+                              class="field ${selectedDeliveryMode === "webhook"
+                                ? "cron-span-2"
+                                : ""}"
+                            >
+                              ${renderFieldLabel(
+                                selectedDeliveryMode === "webhook"
+                                  ? t("cron.form.webhookUrl")
+                                  : t("cron.form.channel"),
+                                selectedDeliveryMode === "webhook",
+                              )}
+                              ${selectedDeliveryMode === "webhook"
+                                ? html`
+                                    <input
+                                      id="cron-delivery-to"
+                                      .value=${props.form.deliveryTo}
+                                      list="cron-delivery-to-suggestions"
+                                      aria-invalid=${props.fieldErrors.deliveryTo
+                                        ? "true"
+                                        : "false"}
+                                      aria-describedby=${ifDefined(
+                                        props.fieldErrors.deliveryTo
+                                          ? errorIdForField("deliveryTo")
+                                          : undefined,
+                                      )}
+                                      @input=${(e: Event) =>
+                                        props.onFormChange({
+                                          deliveryTo: (e.target as HTMLInputElement).value,
+                                        })}
+                                      placeholder=${t("cron.form.webhookPlaceholder")}
+                                    />
+                                  `
+                                : html`
+                                    <select
+                                      id="cron-delivery-channel"
+                                      .value=${props.form.deliveryChannel || "last"}
+                                      @change=${(e: Event) =>
+                                        props.onFormChange({
+                                          deliveryChannel: (e.target as HTMLSelectElement).value,
+                                        })}
+                                    >
+                                      ${channelOptions.map(
+                                        (channel) =>
+                                          html`<option value=${channel}>
+                                            ${resolveChannelLabel(props, channel)}
+                                          </option>`,
+                                      )}
+                                    </select>
+                                  `}
+                              ${selectedDeliveryMode === "announce"
+                                ? html` <div class="cron-help">${t("cron.form.channelHelp")}</div> `
+                                : html`
+                                    <div class="cron-help">${t("cron.form.webhookHelp")}</div>
+                                  `}
+                            </label>
                             ${selectedDeliveryMode === "announce"
-                              ? html` <div class="cron-help">${t("cron.form.channelHelp")}</div> `
-                              : html` <div class="cron-help">${t("cron.form.webhookHelp")}</div> `}
-                          </label>
-                          ${selectedDeliveryMode === "announce"
-                            ? html`
-                                <label class="field cron-span-2">
-                                  ${renderFieldLabel(t("cron.form.to"))}
-                                  <input
-                                    id="cron-delivery-to"
-                                    .value=${props.form.deliveryTo}
-                                    list="cron-delivery-to-suggestions"
-                                    @input=${(e: Event) =>
-                                      props.onFormChange({
-                                        deliveryTo: (e.target as HTMLInputElement).value,
-                                      })}
-                                    placeholder=${t("cron.form.toPlaceholder")}
-                                  />
-                                  <div class="cron-help">${t("cron.form.toHelp")}</div>
-                                </label>
-                              `
-                            : nothing}
-                          ${selectedDeliveryMode === "webhook"
-                            ? renderFieldError(
-                                props.fieldErrors.deliveryTo,
-                                errorIdForField("deliveryTo"),
-                              )
-                            : nothing}
-                        `
-                      : nothing}
+                              ? html`
+                                  <label class="field cron-span-2">
+                                    ${renderFieldLabel(t("cron.form.to"))}
+                                    <input
+                                      id="cron-delivery-to"
+                                      .value=${props.form.deliveryTo}
+                                      list="cron-delivery-to-suggestions"
+                                      @input=${(e: Event) =>
+                                        props.onFormChange({
+                                          deliveryTo: (e.target as HTMLInputElement).value,
+                                        })}
+                                      placeholder=${t("cron.form.toPlaceholder")}
+                                    />
+                                    <div class="cron-help">${t("cron.form.toHelp")}</div>
+                                  </label>
+                                `
+                              : nothing}
+                            ${selectedDeliveryMode === "webhook"
+                              ? renderFieldError(
+                                  props.fieldErrors.deliveryTo,
+                                  errorIdForField("deliveryTo"),
+                                )
+                              : nothing}
+                          `
+                        : nothing}
                   </div>
                 </section>
 

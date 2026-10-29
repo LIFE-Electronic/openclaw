@@ -7,7 +7,7 @@ import { executeJobCore, onTimer } from "../../cron/service/timer.js";
 import { loadCronStore, saveCronStore } from "../../cron/store.js";
 import type { CronJob } from "../../cron/types.js";
 import * as detachedTaskRuntime from "../../tasks/detached-task-runtime.js";
-import { findTaskByRunId, resetTaskRegistryForTests } from "../../tasks/task-registry.js";
+import { listTaskRecords, resetTaskRegistryForTests } from "../../tasks/task-registry.js";
 import { formatTaskStatusDetail } from "../../tasks/task-status.js";
 
 const { logger, makeStorePath } = setupCronServiceSuite({
@@ -104,6 +104,15 @@ describe("cron service timer seam coverage", () => {
       agentId: undefined,
       sessionKey: cronRunSessionKey,
       heartbeat: { target: "last" },
+      backgroundExecution: expect.objectContaining({
+        runId: expect.any(String),
+        origin: {
+          trigger: "cron",
+          is_heartbeat: true,
+          cron_job_id: "main-heartbeat-job",
+          cron_job_name: "main heartbeat job",
+        },
+      }),
     });
   });
 
@@ -144,6 +153,15 @@ describe("cron service timer seam coverage", () => {
       agentId: undefined,
       sessionKey: cronRunSessionKey,
       heartbeat: { target: "last" },
+      backgroundExecution: expect.objectContaining({
+        runId: expect.any(String),
+        origin: {
+          trigger: "cron",
+          is_heartbeat: true,
+          cron_job_id: "main-heartbeat-job",
+          cron_job_name: "main heartbeat job",
+        },
+      }),
     });
 
     const persisted = await loadCronStore(storePath);
@@ -154,7 +172,7 @@ describe("cron service timer seam coverage", () => {
     expect(job.state.lastStatus).toBe("ok");
     expect(job.state.runningAtMs).toBeUndefined();
     expect(job.state.nextRunAtMs).toBe(now + 60_000);
-    const task = findTaskByRunId(`cron:main-heartbeat-job:${now}`);
+    const task = listTaskRecords().find((item) => item.sourceId === "main-heartbeat-job");
     if (!task) {
       throw new Error("expected cron task ledger record");
     }
@@ -163,7 +181,7 @@ describe("cron service timer seam coverage", () => {
     expect(task.ownerKey).toBe("");
     expect(task.scopeKind).toBe("system");
     expect(task.childSessionKey).toBe(cronRunSessionKey);
-    expect(task.runId).toBe(`cron:main-heartbeat-job:${now}`);
+    expect(task.runId).toMatch(new RegExp(`^cron:main-heartbeat-job:${now}:[0-9a-f-]{36}$`));
     expect(task.label).toBe("main heartbeat job");
     expect(task.task).toBe("main heartbeat job");
     expect(task.status).toBe("succeeded");
@@ -217,7 +235,7 @@ describe("cron service timer seam coverage", () => {
         message: "run isolated cron",
       }),
     );
-    const task = findTaskByRunId(`cron:isolated-agent-job:${now}`);
+    const task = listTaskRecords().find((item) => item.sourceId === "isolated-agent-job");
     if (!task) {
       throw new Error("expected isolated cron task ledger record");
     }
@@ -259,7 +277,7 @@ describe("cron service timer seam coverage", () => {
       expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
     });
 
-    const task = findTaskByRunId(`cron:isolated-agent-job:${now}`);
+    const task = listTaskRecords().find((item) => item.sourceId === "isolated-agent-job");
     if (!task) {
       throw new Error("expected active cron task ledger record");
     }

@@ -150,12 +150,23 @@
   },
   {
     "deferLoading": true,
-    "description": "Manage Gateway cron jobs and wake events: reminders, check-back-later, delayed follow-ups, recurring work. Do not emulate scheduling with exec sleep/process polling.\n\nMain cron => system events for heartbeat. Isolated cron => background task in `openclaw tasks`.\n\nACTIONS:\n- status: scheduler status\n- list: jobs; includeDisabled true includes disabled; agentId filter auto-filled from session\n- get: one job; needs jobId\n- add: create job; needs job object\n- update: patch job; needs jobId + patch\n- remove: delete job; needs jobId\n- run: trigger now; needs jobId\n- runs: run history; needs jobId\n- wake: send wake event; needs text, optional mode\n\nJOB SCHEMA (for add action):\n{\n  \"name\": \"string\",\n  \"schedule\": { ... },      // required\n  \"payload\": { ... },       // required\n  \"delivery\": { ... },      // optional announce for isolated/current/session, webhook for any target\n  \"sessionTarget\": \"main\" | \"isolated\" | \"current\" | \"session:<id>\",\n  \"enabled\": true | false   // default true\n}\n\nSESSION TARGET OPTIONS:\n- \"main\": main session; requires payload.kind=\"systemEvent\"\n- \"isolated\": ephemeral isolated session; requires payload.kind=\"agentTurn\"\n- \"current\": bind current session at creation\n- \"session:<id>\": persistent named session\n\nDEFAULTS:\n- payload.kind=\"systemEvent\" → defaults to \"main\"\n- payload.kind=\"agentTurn\" → defaults to \"isolated\"\nCurrent binding needs sessionTarget=\"current\".\n\nSCHEDULE TYPES (schedule.kind):\n- \"at\": one-shot absolute time\n  { \"kind\": \"at\", \"at\": \"<ISO-8601 timestamp>\" }\n- \"every\": recurring interval\n  { \"kind\": \"every\", \"everyMs\": <ms>, \"anchorMs\": <optional-ms> }\n- \"cron\": expr in supplied timezone, or Gateway host local timezone when tz omitted\n  { \"kind\": \"cron\", \"expr\": \"<cron-expression>\", \"tz\": \"<optional-IANA-timezone>\" }\n  Write expr in local wall-clock time; do not convert the requested local time to UTC first.\n  tz omitted => Gateway host local timezone, not UTC.\n  Example 6pm Shanghai daily: { \"kind\": \"cron\", \"expr\": \"0 18 * * *\", \"tz\": \"Asia/Shanghai\" }\n\nFor \"at\", ISO timestamps without timezone are UTC.\n\nPAYLOAD TYPES (payload.kind):\n- \"systemEvent\": inject text as system event\n  { \"kind\": \"systemEvent\", \"text\": \"<message>\" }\n- \"agentTurn\": run agent with prompt; isolated/current/session only\n  { \"kind\": \"agentTurn\", \"message\": \"<prompt>\", \"model\": \"<optional>\", \"thinking\": \"<optional>\", \"timeoutSeconds\": <optional, 0=no timeout> }\n\nDELIVERY (top-level):\n  { \"mode\": \"none|announce|webhook\", \"channel\": \"<optional>\", \"to\": \"<optional>\", \"threadId\": \"<optional>\", \"bestEffort\": <optional-bool> }\n  - isolated agentTurn default when omitted: \"announce\"\n  - announce: send to chat channel; isolated/current/session only; optional channel/to\n  - threadId: chat thread/topic id\n  - webhook: POST finished-run event to delivery.to URL\n  - Specific chat/recipient: set announce delivery.channel/to; do not call messaging tools inside run.\n\nCRITICAL CONSTRAINTS:\n- sessionTarget=\"main\" REQUIRES payload.kind=\"systemEvent\"\n- sessionTarget=\"isolated\" | \"current\" | \"session:xxx\" REQUIRES payload.kind=\"agentTurn\"\n- Webhook: delivery.mode=\"webhook\" and delivery.to URL.\nDefault: prefer isolated agentTurn jobs unless the user explicitly wants current-session binding.\n\nRESTRICTED CRON RUNS:\n- Some isolated cron runs get narrow self-cleanup grant: status/list self-only, get/runs current job only, mutation only remove current job.\n\nWAKE MODES (for wake action):\n- \"next-heartbeat\" default: wake next heartbeat\n- \"now\": wake immediately\n\nUse jobId canonical; id accepted compat. contextMessages (0-10) adds previous messages as job context.",
+    "description": "Manage Gateway cron jobs and wake events: reminders, check-back-later, delayed follow-ups, recurring work. Do not emulate scheduling with exec sleep/process polling.\n\nMain cron => system events for heartbeat. Isolated cron => background task in `openclaw tasks`.\n\nACTIONS:\n- status: scheduler status\n- list: jobs; includeDisabled true includes disabled; agentId filter auto-filled from session\n- get: one job; needs jobId\n- add: create job; needs job object\n- update: patch job; needs jobId + patch\n- remove: delete job; needs jobId\n- run: trigger now; needs jobId\n- runs: run history; needs jobId\n- wake: send wake event; needs text, optional mode\n\nJOB SCHEMA (for add action):\n{\n  \"name\": \"string\",\n  \"schedule\": { ... },      // required\n  \"payload\": { ... },       // required\n  \"delivery\": { ... },      // optional announce for isolated/current/session, webhook for any target\n  \"sessionTarget\": \"main\" | \"isolated\" | \"current\" | \"session:<id>\",\n  \"enabled\": true | false   // default true\n}\n\nSESSION TARGET OPTIONS:\n- \"main\": main session; requires payload.kind=\"systemEvent\"\n- \"isolated\": ephemeral isolated session; requires payload.kind=\"agentTurn\"\n- \"current\": bind current session at creation\n- \"session:<id>\": persistent named session\n\nDEFAULTS:\n- payload.kind=\"systemEvent\" → defaults to \"main\"\n- payload.kind=\"agentTurn\" → defaults to \"isolated\"\nCurrent binding needs sessionTarget=\"current\".\n\nSCHEDULE TYPES (schedule.kind):\n- \"at\": one-shot absolute time\n  { \"kind\": \"at\", \"at\": \"<ISO-8601 timestamp>\" }\n- \"every\": recurring interval\n  { \"kind\": \"every\", \"everyMs\": <ms>, \"anchorMs\": <optional-ms> }\n- \"cron\": expr in supplied timezone, or Gateway host local timezone when tz omitted\n  { \"kind\": \"cron\", \"expr\": \"<cron-expression>\", \"tz\": \"<optional-IANA-timezone>\" }\n  Write expr in local wall-clock time; do not convert the requested local time to UTC first.\n  tz omitted => Gateway host local timezone, not UTC.\n  Example 6pm Shanghai daily: { \"kind\": \"cron\", \"expr\": \"0 18 * * *\", \"tz\": \"Asia/Shanghai\" }\n\nFor \"at\", ISO timestamps without timezone are UTC.\n\nPAYLOAD TYPES (payload.kind):\n- \"systemEvent\": inject text as system event\n  { \"kind\": \"systemEvent\", \"text\": \"<message>\" }\n- \"agentTurn\": run agent with prompt; isolated/current/session only\n  { \"kind\": \"agentTurn\", \"message\": \"<prompt>\", \"model\": \"<optional>\", \"thinking\": \"<optional>\", \"timeoutSeconds\": <optional, 0=no timeout> }\n\nDELIVERY (top-level):\n  { \"mode\": \"none|announce|webhook\", \"channel\": \"<optional>\", \"to\": \"<optional>\", \"threadId\": \"<optional>\", \"bestEffort\": <optional-bool> }\n  - isolated agentTurn default when omitted: \"announce\"\n  - announce: send to chat channel; isolated/current/session only; optional channel/to\n  - threadId: chat thread/topic id\n  - bluehouse: commit the final result to delivery.to native session key (default agent:main:main for webchat-created jobs). No second wake or announcement is needed.\n  - webhook: POST finished-run event to delivery.to URL\n  - Specific chat/recipient: set announce delivery.channel/to; do not call messaging tools inside run.\n\nCRITICAL CONSTRAINTS:\n- sessionTarget=\"main\" REQUIRES payload.kind=\"systemEvent\"\n- sessionTarget=\"isolated\" | \"current\" | \"session:xxx\" REQUIRES payload.kind=\"agentTurn\"\n- Webhook: delivery.mode=\"webhook\" and delivery.to URL.\nDefault: prefer isolated agentTurn jobs unless the user explicitly wants current-session binding.\nFor BlueHouse use delivery={mode:\"bluehouse\",to:\"agent:main:main\"}; return the visible result as your final reply.\nDo not send it again through cron wake, sessions_send, or messaging tools.\nA successful cron run, fresh file, wake ok, or native transcript is not a delivery receipt.\nUse runs to obtain runId, then delivery_status with that runId and destinationSessionKey.\nOnly status=\"delivered\" with rowId proves a committed BlueHouse message; pending/unknown are not delivery.\nWatchdogs must report missing receipts and must not rerun completed jobs merely to retry delivery.\n\nRESTRICTED CRON RUNS:\n- Some isolated cron runs get narrow self-cleanup grant: status/list self-only, get/runs current job only, mutation only remove current job.\n\nWAKE MODES (for wake action):\n- \"next-heartbeat\" default: wake next heartbeat\n- \"now\": wake immediately\n\nUse jobId canonical; id accepted compat. contextMessages (0-10) adds previous messages as job context.",
     "inputSchema": {
       "additionalProperties": true,
       "properties": {
         "action": {
-          "enum": ["status", "list", "get", "add", "update", "remove", "run", "runs", "wake"],
+          "enum": [
+            "status",
+            "list",
+            "get",
+            "add",
+            "update",
+            "remove",
+            "run",
+            "runs",
+            "delivery_status",
+            "wake"
+          ],
           "type": "string"
         },
         "agentId": {
@@ -166,6 +177,10 @@
           "maximum": 10,
           "minimum": 0,
           "type": "integer"
+        },
+        "destinationSessionKey": {
+          "description": "BlueHouse destination; defaults to agent:main:main",
+          "type": "string"
         },
         "gatewayToken": {
           "type": "string"
@@ -180,7 +195,7 @@
           "type": "boolean"
         },
         "job": {
-          "additionalProperties": true,
+          "additionalProperties": false,
           "properties": {
             "agentId": {
               "description": "Agent id, or null to keep it unset",
@@ -191,7 +206,7 @@
               "type": "boolean"
             },
             "delivery": {
-              "additionalProperties": true,
+              "additionalProperties": false,
               "properties": {
                 "accountId": {
                   "description": "Delivery account",
@@ -224,8 +239,7 @@
                   "type": "object"
                 },
                 "mode": {
-                  "description": "Delivery mode",
-                  "enum": ["none", "announce", "webhook"],
+                  "enum": ["none", "announce", "webhook", "bluehouse"],
                   "type": "string"
                 },
                 "threadId": {
@@ -244,6 +258,7 @@
                   "type": "string"
                 }
               },
+              "required": ["mode"],
               "type": "object"
             },
             "description": {
@@ -291,10 +306,11 @@
             },
             "name": {
               "description": "Job name",
+              "minLength": 1,
               "type": "string"
             },
             "payload": {
-              "additionalProperties": true,
+              "additionalProperties": false,
               "properties": {
                 "allowUnsafeExternalContent": {
                   "type": "boolean"
@@ -307,7 +323,6 @@
                   "type": "array"
                 },
                 "kind": {
-                  "description": "Payload kind",
                   "enum": ["systemEvent", "agentTurn"],
                   "type": "string"
                 },
@@ -342,10 +357,11 @@
                   "type": "array"
                 }
               },
+              "required": ["kind"],
               "type": "object"
             },
             "schedule": {
-              "additionalProperties": true,
+              "additionalProperties": false,
               "properties": {
                 "anchorMs": {
                   "description": "Start anchor ms (kind=every)",
@@ -366,7 +382,6 @@
                   "type": "string"
                 },
                 "kind": {
-                  "description": "Schedule kind",
                   "enum": ["at", "every", "cron"],
                   "type": "string"
                 },
@@ -380,6 +395,7 @@
                   "type": "string"
                 }
               },
+              "required": ["kind"],
               "type": "object"
             },
             "sessionKey": {
@@ -388,6 +404,7 @@
             },
             "sessionTarget": {
               "description": "main | isolated | current | session:<id>",
+              "pattern": "^(main|isolated|current|session:.+)$",
               "type": "string"
             },
             "wakeMode": {
@@ -396,6 +413,7 @@
               "type": "string"
             }
           },
+          "required": ["name", "schedule", "sessionTarget", "payload"],
           "type": "object"
         },
         "jobId": {
@@ -450,7 +468,7 @@
                 },
                 "mode": {
                   "description": "Delivery mode",
-                  "enum": ["none", "announce", "webhook"],
+                  "enum": ["none", "announce", "webhook", "bluehouse"],
                   "type": "string"
                 },
                 "threadId": {
@@ -620,6 +638,10 @@
             }
           },
           "type": "object"
+        },
+        "runId": {
+          "description": "Execution id from cron.runs",
+          "type": "string"
         },
         "runMode": {
           "enum": ["due", "force"],

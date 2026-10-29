@@ -31,6 +31,12 @@ The imported code has upstream formatting/lint corrections. The media helper is
 kept byte-identical to the copy shipped by the matching Wolper overlay so its
 compiled-runtime probe can verify the source used for the build.
 
+Upstream regression coverage also checks direct-delivery replay identity:
+scheduled executions have distinct IDs, and delivery retries reuse the original
+ID. Gateway method order stays stable, and Control UI/macOS protocol models
+recognize BlueHouse destinations. Core runtime and Control UI tests cover these
+fork integration fixes; native macOS tests require a macOS runner.
+
 ## Build and activate a candidate
 
 Use Wolper's `build-image.sh` with `OPENCLAW_SOURCE_MODE=fork`,

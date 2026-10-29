@@ -908,6 +908,7 @@ async function prepareCronRunContext(params: {
 async function finalizeCronRun(params: {
   prepared: PreparedCronRunContext;
   execution: CronExecutionResult;
+  executionId: string;
   abortReason: () => string;
   isAborted: () => boolean;
 }): Promise<RunCronAgentTurnResult> {
@@ -1113,6 +1114,7 @@ async function finalizeCronRun(params: {
     runSessionKey: prepared.runSessionKey,
     sessionId: prepared.currentRunSessionId(),
     runStartedAt: execution.runStartedAt,
+    executionId: params.executionId,
     runEndedAt: execution.runEndedAt,
     timeoutMs: prepared.timeoutMs,
     resolvedDelivery: prepared.resolvedDelivery,
@@ -1319,6 +1321,7 @@ export async function runCronIsolatedAgentTurn(params: {
     const finalized = await finalizeCronRun({
       prepared: prepared.context,
       execution: executionResult,
+      executionId: execution.runId,
       abortReason,
       isAborted,
     });
