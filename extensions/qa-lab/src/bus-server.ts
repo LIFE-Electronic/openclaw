@@ -280,12 +280,17 @@ function normalizeQaBusPollInput(input: Record<string, unknown>): QaBusPollInput
     label: "poll cursor",
     min: 0,
   });
-  const acknowledgedCursor = readOptionalIntegerField(input, "acknowledgedCursor", {
-    label: "acknowledged poll cursor",
-    min: 0,
-  });
-  if (acknowledgedCursor !== undefined && acknowledgedCursor > (cursor ?? 0)) {
-    throw new Error("acknowledged poll cursor must not exceed the requested poll cursor.");
+  const completedEventCursors = input.completedEventCursors;
+  if (
+    completedEventCursors !== undefined &&
+    (!Array.isArray(completedEventCursors) ||
+      completedEventCursors.some(
+        (value) => !Number.isSafeInteger(value) || value < 1 || value > (cursor ?? 0),
+      ))
+  ) {
+    throw new Error(
+      "completed event cursors must be positive integers within the requested poll cursor.",
+    );
   }
   const adoptedCursor = readOptionalIntegerField(input, "adoptedCursor", {
     label: "adopted poll cursor",
@@ -307,7 +312,7 @@ function normalizeQaBusPollInput(input: Record<string, unknown>): QaBusPollInput
   return {
     ...input,
     ...(cursor !== undefined ? { cursor } : {}),
-    ...(acknowledgedCursor !== undefined ? { acknowledgedCursor } : {}),
+    ...(completedEventCursors !== undefined ? { completedEventCursors } : {}),
     ...(adoptedCursor !== undefined ? { adoptedCursor } : {}),
     ...(limit !== undefined ? { limit } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),

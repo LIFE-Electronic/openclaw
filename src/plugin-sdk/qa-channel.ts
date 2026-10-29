@@ -50,7 +50,7 @@ type FacadeModule = {
     baseUrl: string;
     accountId: string;
     cursor: number;
-    acknowledgedCursor: number;
+    completedEventCursors?: number[];
     adoptedCursor?: number;
     timeoutMs: number;
     signal?: AbortSignal;

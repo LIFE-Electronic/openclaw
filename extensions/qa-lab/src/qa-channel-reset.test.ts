@@ -31,7 +31,7 @@ describe("QA channel reset processing boundary", () => {
       state.resolvePollCursor({ accountId, adoptedCursor: inboundCursor });
       state.resolvePollCursor({
         accountId: "unrelated",
-        acknowledgedCursor: state.getSnapshot().cursor,
+        completedEventCursors: [inboundCursor],
       });
       const reset = transport.reset();
       try {
@@ -46,7 +46,7 @@ describe("QA channel reset processing boundary", () => {
           text: "lemon pepper wings with blue cheese",
         });
       } finally {
-        state.resolvePollCursor({ accountId, acknowledgedCursor: inboundCursor });
+        state.resolvePollCursor({ accountId, completedEventCursors: [inboundCursor] });
         await vi.runAllTimersAsync();
         await reset;
       }

@@ -274,8 +274,8 @@ export type QaBusReadMessageInput = {
 export type QaBusPollInput = {
   accountId?: string;
   cursor?: number;
-  /** Highest contiguous event cursor whose consumer work completed successfully. */
-  acknowledgedCursor?: number;
+  /** Exact inbound events whose handlers, delivery and preview cleanup completed successfully. */
+  completedEventCursors?: number[];
   /** Highest contiguous event cursor adopted for execution; prevents replay, not completion. */
   adoptedCursor?: number;
   timeoutMs?: number;

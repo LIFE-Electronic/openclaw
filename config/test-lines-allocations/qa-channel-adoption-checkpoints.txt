@@ -1,2 +1,2 @@
-295
-# Prove adoption replay fences, completed replies, and deferred delivery settlement.
+436
+# Prove adoption replay fences, exact retained-input completion, and deferred delivery settlement.

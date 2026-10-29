@@ -48,7 +48,7 @@ export function createQaBusState() {
   const threads = new Map<string, QaBusThread>();
   const messages = new Map<string, QaBusMessage>();
   const events: QaBusEvent[] = [];
-  const acknowledgedPollCursors = new Map<string, number>();
+  const inboundCompletions = new Map<number, { accountId: string; completed: boolean }>();
   const adoptedPollCursors = new Map<string, number>();
   let cursor = 0;
   let assertWritable = () => {};
@@ -65,6 +65,9 @@ export function createQaBusState() {
   const pushEvent = (event: QaBusEventSeed): void => {
     cursor += 1;
     events.push({ cursor, ...event });
+    if (event.kind === "inbound-message") {
+      inboundCompletions.set(cursor, { accountId: event.accountId, completed: false });
+    }
     waiters.settle();
   };
 
@@ -162,6 +165,7 @@ export function createQaBusState() {
       threads.clear();
       messages.clear();
       events.length = 0;
+      inboundCompletions.clear();
       // Keep the cursor monotonic across resets so long-poll clients do not
       // miss events; terminal reset also fences late waiter timers.
       waiters.reset(undefined, terminal);
@@ -279,13 +283,14 @@ export function createQaBusState() {
       assertWritable();
       const accountId = normalizeAccountId(input.accountId);
       const requestedCursor = input.cursor ?? 0;
-      const acknowledgedCursor = acknowledgedPollCursors.get(accountId) ?? 0;
       let adoptedCursor = adoptedPollCursors.get(accountId) ?? 0;
-      // Fetch progress and completed work are separate facts. Missing
-      // acknowledgement means the consumer has not recorded new completion.
-      const completedCursor = input.acknowledgedCursor ?? 0;
-      if (completedCursor > acknowledgedCursor && completedCursor <= cursor) {
-        acknowledgedPollCursors.set(accountId, completedCursor);
+      // Completion belongs to a retained input, not the replay prefix. Ignore
+      // late duplicate receipts after reset and claims outside this account.
+      for (const completedCursor of input.completedEventCursors ?? []) {
+        const completion = inboundCompletions.get(completedCursor);
+        if (completion?.accountId === accountId) {
+          completion.completed = true;
+        }
       }
       if (
         input.adoptedCursor !== undefined &&
@@ -297,10 +302,11 @@ export function createQaBusState() {
       }
       // A restarted channel consumer begins at zero. Resume its account cursor
       // after adopted work without claiming that its final delivery completed.
-      return requestedCursor === 0 ? Math.max(acknowledgedCursor, adoptedCursor) : requestedCursor;
+      return requestedCursor === 0 ? adoptedCursor : requestedCursor;
     },
-    getAcknowledgedPollCursor(accountId?: string) {
-      return acknowledgedPollCursors.get(normalizeAccountId(accountId)) ?? 0;
+    hasCompletedInboundEvent(accountId: string | undefined, eventCursor: number) {
+      const completion = inboundCompletions.get(eventCursor);
+      return completion?.accountId === normalizeAccountId(accountId) && completion.completed;
     },
     poll(input: QaBusPollInput = {}) {
       return pollQaBusEvents({ events, cursor, input });

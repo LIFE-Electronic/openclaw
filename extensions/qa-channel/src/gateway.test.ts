@@ -188,7 +188,7 @@ describe("qa-channel gateway", () => {
     expect(handleQaInbound).toHaveBeenCalledTimes(1);
   });
 
-  it("acknowledges only the contiguous prefix when dispatches finish out of order", async () => {
+  it("records out-of-order completion while replay resumes at the adopted prefix", async () => {
     const { state, bus, messages } = await busWithMessages("first", "second", "/stop");
     let pollCount = 0;
     bus.server.on("request", (request) => {
@@ -225,7 +225,11 @@ describe("qa-channel gateway", () => {
     });
     rejectSecond(new Error("inbound failed"));
     await expect(firstGateway).rejects.toThrow("inbound failed");
-    expect(state.getAcknowledgedPollCursor("default")).toBe(1);
+    expect(state.hasCompletedInboundEvent("default", 1)).toBe(true);
+
+    expect(state.hasCompletedInboundEvent("default", 2)).toBe(false);
+    expect(state.hasCompletedInboundEvent("default", 3)).toBe(true);
+    expect(state.resolvePollCursor({ accountId: "default" })).toBe(1);
 
     restarting = true;
     const restartedGateway = startGateway(bus.baseUrl, {
@@ -255,7 +259,7 @@ describe("qa-channel gateway", () => {
 
     await startGateway(bus.baseUrl, { abortSignal: controller.signal, pollTimeoutMs: 10 });
 
-    expect(state.getAcknowledgedPollCursor("default")).toBe(1);
+    expect(state.hasCompletedInboundEvent("default", 1)).toBe(true);
   });
 
   it("confirms adopted input at the bus before its handler completes", async () => {
@@ -280,18 +284,17 @@ describe("qa-channel gateway", () => {
         baseUrl: bus.baseUrl,
         accountId: "default",
         cursor: 0,
-        acknowledgedCursor: 0,
         timeoutMs: 0,
       });
       expect(restartedPoll.events).toEqual([]);
-      expect(state.getAcknowledgedPollCursor("default")).toBe(0);
+      expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
       expect(handlerCompleted).toBe(false);
     } finally {
       handler.resolve();
       controller.abort();
       await gateway;
     }
-    expect(state.getAcknowledgedPollCursor("default")).toBe(1);
+    expect(state.hasCompletedInboundEvent("default", 1)).toBe(true);
   });
 
   it("lets native adoption pass an unadopted input without acknowledging it", async () => {
@@ -324,17 +327,20 @@ describe("qa-channel gateway", () => {
     try {
       const lifecycle = await deferred.promise;
       expect(await controlAdopted.promise).toBe(0);
-      expect(state.getAcknowledgedPollCursor("default")).toBe(0);
+      expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
       await lifecycle.onAdopted();
       expect(state.resolvePollCursor({ accountId: "default" })).toBe(2);
-      expect(state.getAcknowledgedPollCursor("default")).toBe(0);
+      expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
     } finally {
       input.resolve();
       control.resolve();
       controller.abort();
       await gateway;
     }
-    expect(state.getAcknowledgedPollCursor("default")).toBe(2);
+    expect([1, 2].map((cursor) => state.hasCompletedInboundEvent("default", cursor))).toEqual([
+      true,
+      true,
+    ]);
   });
 
   it.each([
@@ -355,7 +361,7 @@ describe("qa-channel gateway", () => {
 
     await expect(startGateway(bus.baseUrl)).rejects.toThrow(error);
     expect(state.resolvePollCursor({ accountId: "default" })).toBe(adopted);
-    expect(state.getAcknowledgedPollCursor("default")).toBe(0);
+    expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
   });
 
   it("rejects adoption when the bus cannot confirm acknowledgement", async () => {

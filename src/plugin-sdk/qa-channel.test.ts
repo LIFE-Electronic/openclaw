@@ -54,13 +54,13 @@ describe("plugin-sdk qa-channel", () => {
       baseUrl: "http://127.0.0.1:43124",
       accountId: "default",
       cursor: 1,
-      acknowledgedCursor: 1,
+      completedEventCursors: [1],
       timeoutMs: 0,
     };
 
     expectTypeOf<Parameters<typeof pollQaBus>[0]>()
-      .toHaveProperty("acknowledgedCursor")
-      .toEqualTypeOf<number>();
+      .toHaveProperty("completedEventCursors")
+      .toEqualTypeOf<number[] | undefined>();
     await expect(pollQaBus(input)).resolves.toEqual({ cursor: 1, events: [] });
     expect(pollQaBusImpl).toHaveBeenCalledWith(input);
   });

@@ -58,6 +58,33 @@ describe("qa-bus state", () => {
     });
   });
 
+  it("records exact account-owned completion without crossing gaps or surviving reset", () => {
+    inbound({ conversation: { id: "first", kind: "direct" } }, "same-provider-id");
+    inbound({ conversation: { id: "second", kind: "direct" } }, "same-provider-id");
+    inbound({ accountId: "other" }, "same-provider-id");
+    outbound("dm:alice", "preview");
+
+    state.resolvePollCursor({ completedEventCursors: [2, 2, 3, 4, 5], adoptedCursor: 4 });
+    expect(
+      [1, 2, 3, 4, 5].map((cursor) => state.hasCompletedInboundEvent("default", cursor)),
+    ).toEqual([false, true, false, false, false]);
+    expect(state.hasCompletedInboundEvent("other", 3)).toBe(false);
+    expect(state.resolvePollCursor()).toBe(4);
+    state.resolvePollCursor({ completedEventCursors: [], adoptedCursor: 1 });
+    expect(state.hasCompletedInboundEvent("default", 2)).toBe(true);
+    expect(state.resolvePollCursor()).toBe(4);
+
+    state.reset();
+    inbound({});
+    // A write started before reset may arrive after it; it cannot complete new input.
+    state.resolvePollCursor({ completedEventCursors: [1, 2, 3, 4] });
+    expect(
+      [1, 2, 3, 4, 5].map((cursor) => state.hasCompletedInboundEvent("default", cursor)),
+    ).toEqual([false, false, false, false, false]);
+    state.resolvePollCursor({ completedEventCursors: [5] });
+    expect(state.hasCompletedInboundEvent(undefined, 5)).toBe(true);
+  });
+
   let state: ReturnType<typeof createQaBusState>;
   beforeEach(() => {
     state = createQaBusState();

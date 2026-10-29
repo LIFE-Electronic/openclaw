@@ -27,9 +27,7 @@ export async function startQaGatewayAccount(
   });
   let cursor = 0;
   let adoptedCursor = 0;
-  let acknowledgedCursor = 0;
   let committedAdoptedCursor = 0;
-  let committedAcknowledgedCursor = 0;
   let queuedCursor = 0;
   let acknowledgementStopped = false;
   let ready = false;
@@ -40,10 +38,9 @@ export async function startQaGatewayAccount(
   type PendingEvent = {
     cursor: number;
     state: "pending" | "adopted" | "abandoned";
-    completed: boolean;
   };
   const pendingAdoptions: PendingEvent[] = [];
-  const pendingCompletions: PendingEvent[] = [];
+  const completedEventCursors = new Set<number>();
   const captureInboundError = (error: unknown) => {
     inboundError ??= error instanceof Error ? error : new Error(String(error));
   };
@@ -53,21 +50,14 @@ export async function startQaGatewayAccount(
       adoptedCursor = pendingAdoptions.shift()!.cursor;
     }
   };
-  const markCompleted = (event: PendingEvent) => {
-    markAdopted(event);
-    event.completed = true;
-    while (pendingCompletions[0]?.completed) {
-      acknowledgedCursor = pendingCompletions.shift()!.cursor;
-    }
-  };
   const flushAcknowledgements = () => {
     const flush = queuedAcknowledgements.then(async () => {
       if (acknowledgementStopped) {
         throw inboundError ?? new Error("QA channel acknowledgement owner stopped");
       }
       const adopted = adoptedCursor;
-      const completed = acknowledgedCursor;
-      if (adopted <= committedAdoptedCursor && completed <= committedAcknowledgedCursor) {
+      const completed = [...completedEventCursors];
+      if (adopted <= committedAdoptedCursor && completed.length === 0) {
         return;
       }
       // Adoption must confirm transport custody before execution can continue.
@@ -75,13 +65,15 @@ export async function startQaGatewayAccount(
       await pollQaBus({
         baseUrl: account.baseUrl,
         accountId: account.accountId,
-        cursor: Math.max(adopted, completed),
+        cursor,
         adoptedCursor: adopted,
-        acknowledgedCursor: completed,
+        completedEventCursors: completed,
         timeoutMs: 0,
       });
       committedAdoptedCursor = Math.max(committedAdoptedCursor, adopted);
-      committedAcknowledgedCursor = Math.max(committedAcknowledgedCursor, completed);
+      for (const eventCursor of completed) {
+        completedEventCursors.delete(eventCursor);
+      }
     });
     queuedAcknowledgements = flush.catch((error: unknown) => {
       acknowledgementStopped = true;
@@ -123,7 +115,9 @@ export async function startQaGatewayAccount(
     // Policy refusals and terminal no-turn handlers still consume their event.
     // handleQaInbound also joins deferred delivery and preview cleanup.
     if (event.state === "pending" || event.state === "adopted") {
-      markCompleted(event);
+      markAdopted(event);
+      completedEventCursors.add(event.cursor);
+      await flushAcknowledgements();
     }
   };
   const dispatchControl = (
@@ -153,9 +147,8 @@ export async function startQaGatewayAccount(
       return undefined;
     }
     queuedCursor = eventCursor;
-    const event: PendingEvent = { cursor: eventCursor, state: "pending", completed: false };
+    const event: PendingEvent = { cursor: eventCursor, state: "pending" };
     pendingAdoptions.push(event);
-    pendingCompletions.push(event);
     return event;
   };
   try {
@@ -163,18 +156,15 @@ export async function startQaGatewayAccount(
       if (inboundError) {
         throw inboundError;
       }
-      const pollAcknowledgedCursor = acknowledgedCursor;
       const pollAdoptedCursor = adoptedCursor;
       const result = await pollQaBus({
         baseUrl: account.baseUrl,
         accountId: account.accountId,
         cursor,
-        acknowledgedCursor: pollAcknowledgedCursor,
         adoptedCursor: pollAdoptedCursor,
         timeoutMs: account.pollTimeoutMs,
         signal: ctx.abortSignal,
       });
-      committedAcknowledgedCursor = Math.max(committedAcknowledgedCursor, pollAcknowledgedCursor);
       committedAdoptedCursor = Math.max(committedAdoptedCursor, pollAdoptedCursor);
       if (!ready) {
         ready = true;
@@ -187,7 +177,7 @@ export async function startQaGatewayAccount(
           continue;
         }
         if (event.kind !== "inbound-message") {
-          markCompleted(acknowledgement);
+          markAdopted(acknowledgement);
           continue;
         }
         if (event.message.nativeCommand) {
@@ -198,7 +188,7 @@ export async function startQaGatewayAccount(
       }
       const tail = queueEvent(cursor);
       if (tail) {
-        markCompleted(tail);
+        markAdopted(tail);
       }
     }
     if (inboundError) {
@@ -218,7 +208,7 @@ export async function startQaGatewayAccount(
     try {
       await Promise.all([queuedInbound, ...controlTasks]);
       // Join started writes and flush completed handlers without the cancelled
-      // poll signal. Failed inputs leave gaps in the completion checkpoint.
+      // poll signal. Only successful handlers publish exact completion receipts.
       await flushAcknowledgements();
     } catch (error) {
       captureInboundError(error);
