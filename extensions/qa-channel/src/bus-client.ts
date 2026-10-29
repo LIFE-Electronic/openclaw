@@ -189,7 +189,7 @@ export async function pollQaBus(params: {
   accountId: string;
   cursor: number;
   completedEventCursors?: number[];
-  adoptedCursor?: number;
+  adoptedEventCursors?: number[];
   timeoutMs: number;
   signal?: AbortSignal;
 }): Promise<QaBusPollResult> {
@@ -200,7 +200,7 @@ export async function pollQaBus(params: {
       accountId: params.accountId,
       cursor: params.cursor,
       completedEventCursors: params.completedEventCursors,
-      adoptedCursor: params.adoptedCursor,
+      adoptedEventCursors: params.adoptedEventCursors,
       timeoutMs: params.timeoutMs,
     },
     {

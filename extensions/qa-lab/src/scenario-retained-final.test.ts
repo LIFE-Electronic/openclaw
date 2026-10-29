@@ -226,10 +226,10 @@ describe("failed-tool scenario retained final", () => {
         baseUrl: bus.baseUrl,
         accountId: "default",
         cursor: state.getSnapshot().cursor,
-        adoptedCursor: state.getSnapshot().cursor,
+        adoptedEventCursors: [1],
         timeoutMs: 0,
       });
-      const polls = vi.spyOn(state, "resolvePollCursor");
+      const polls = vi.spyOn(state, "poll");
       const dispatch = vi.mocked(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher);
       dispatch.mockImplementation(async ({ dispatcherOptions, replyOptions }) => {
         await replyOptions?.turnAdoptionLifecycle?.onAdopted?.();

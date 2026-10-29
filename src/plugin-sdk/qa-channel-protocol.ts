@@ -276,8 +276,8 @@ export type QaBusPollInput = {
   cursor?: number;
   /** Exact inbound events whose handlers, delivery and preview cleanup completed successfully. */
   completedEventCursors?: number[];
-  /** Highest contiguous event cursor adopted for execution; prevents replay, not completion. */
-  adoptedCursor?: number;
+  /** Exact inbound events adopted for execution; prevents replay, not completion. */
+  adoptedEventCursors?: number[];
   timeoutMs?: number;
   limit?: number;
 };

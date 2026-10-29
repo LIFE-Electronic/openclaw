@@ -110,7 +110,7 @@ describe("qa channel transport", () => {
       transport.waitForOutbound({ conversation, textIncludes: "QA-PORTABLE-OK" }),
     ).resolves.toMatchObject({ text: "QA-PORTABLE-OK" });
     // The synthetic fixture has no channel poller; record its completed turn.
-    state.resolvePollCursor({ completedEventCursors: [inboundCursor] });
+    state.recordPollReceipts({ completedEventCursors: [inboundCursor] });
     await transport.reset();
     expect(transport.state.getSnapshot().messages).toEqual([]);
   });

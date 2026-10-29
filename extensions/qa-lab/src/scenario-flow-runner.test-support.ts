@@ -92,7 +92,7 @@ export async function runLoadedScenarioFlow(
             (!input.textIncludes || candidate.text.includes(input.textIncludes)),
         );
       if (match) {
-        state.resolvePollCursor({
+        state.recordPollReceipts({
           accountId: "qa-channel",
           cursor: state.getSnapshot().cursor,
           completedEventCursors: state

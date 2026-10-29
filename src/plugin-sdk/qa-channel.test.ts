@@ -48,16 +48,20 @@ describe("plugin-sdk qa-channel", () => {
     });
   });
 
-  it("carries explicit completion acknowledgements through the QA facade", async () => {
+  it("carries exact adoption and completion receipts through the QA facade", async () => {
     const { pollQaBus } = await import("./qa-channel.js");
     const input = {
       baseUrl: "http://127.0.0.1:43124",
       accountId: "default",
       cursor: 1,
+      adoptedEventCursors: [1],
       completedEventCursors: [1],
       timeoutMs: 0,
     };
 
+    expectTypeOf<Parameters<typeof pollQaBus>[0]>()
+      .toHaveProperty("adoptedEventCursors")
+      .toEqualTypeOf<number[] | undefined>();
     expectTypeOf<Parameters<typeof pollQaBus>[0]>()
       .toHaveProperty("completedEventCursors")
       .toEqualTypeOf<number[] | undefined>();

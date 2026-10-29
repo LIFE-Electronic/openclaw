@@ -26,8 +26,6 @@ export async function startQaGatewayAccount(
     baseUrl: account.baseUrl,
   });
   let cursor = 0;
-  let adoptedCursor = 0;
-  let committedAdoptedCursor = 0;
   let queuedCursor = 0;
   let acknowledgementStopped = false;
   let ready = false;
@@ -39,25 +37,19 @@ export async function startQaGatewayAccount(
     cursor: number;
     state: "pending" | "adopted" | "abandoned";
   };
-  const pendingAdoptions: PendingEvent[] = [];
+  const adoptedEventCursors = new Set<number>();
   const completedEventCursors = new Set<number>();
   const captureInboundError = (error: unknown) => {
     inboundError ??= error instanceof Error ? error : new Error(String(error));
-  };
-  const markAdopted = (event: PendingEvent) => {
-    event.state = "adopted";
-    while (pendingAdoptions[0]?.state === "adopted") {
-      adoptedCursor = pendingAdoptions.shift()!.cursor;
-    }
   };
   const flushAcknowledgements = () => {
     const flush = queuedAcknowledgements.then(async () => {
       if (acknowledgementStopped) {
         throw inboundError ?? new Error("QA channel acknowledgement owner stopped");
       }
-      const adopted = adoptedCursor;
+      const adopted = [...adoptedEventCursors];
       const completed = [...completedEventCursors];
-      if (adopted <= committedAdoptedCursor && completed.length === 0) {
+      if (adopted.length === 0 && completed.length === 0) {
         return;
       }
       // Adoption must confirm transport custody before execution can continue.
@@ -66,11 +58,13 @@ export async function startQaGatewayAccount(
         baseUrl: account.baseUrl,
         accountId: account.accountId,
         cursor,
-        adoptedCursor: adopted,
+        adoptedEventCursors: adopted,
         completedEventCursors: completed,
         timeoutMs: 0,
       });
-      committedAdoptedCursor = Math.max(committedAdoptedCursor, adopted);
+      for (const eventCursor of adopted) {
+        adoptedEventCursors.delete(eventCursor);
+      }
       for (const eventCursor of completed) {
         completedEventCursors.delete(eventCursor);
       }
@@ -99,9 +93,10 @@ export async function startQaGatewayAccount(
           if (acknowledgementStopped || event.state === "abandoned") {
             throw inboundError ?? new Error("QA input adoption is no longer available");
           }
-          markAdopted(event);
-          // Native controls may overtake an unadopted input. Flush the available
-          // prefix without waiting for that predecessor's handler or adoption.
+          event.state = "adopted";
+          adoptedEventCursors.add(event.cursor);
+          // Native controls can overtake an unadopted input. Confirm this
+          // exact input before execution without waiting for its predecessor.
           await flushAcknowledgements();
         },
         onAbandoned: () => {
@@ -115,7 +110,7 @@ export async function startQaGatewayAccount(
     // Policy refusals and terminal no-turn handlers still consume their event.
     // handleQaInbound also joins deferred delivery and preview cleanup.
     if (event.state === "pending" || event.state === "adopted") {
-      markAdopted(event);
+      event.state = "adopted";
       completedEventCursors.add(event.cursor);
       await flushAcknowledgements();
     }
@@ -142,54 +137,39 @@ export async function startQaGatewayAccount(
       })
       .catch(captureInboundError);
   };
-  const queueEvent = (eventCursor: number): PendingEvent | undefined => {
-    if (eventCursor <= queuedCursor) {
-      return undefined;
-    }
-    queuedCursor = eventCursor;
-    const event: PendingEvent = { cursor: eventCursor, state: "pending" };
-    pendingAdoptions.push(event);
-    return event;
-  };
   try {
     while (!ctx.abortSignal.aborted) {
       if (inboundError) {
         throw inboundError;
       }
-      const pollAdoptedCursor = adoptedCursor;
       const result = await pollQaBus({
         baseUrl: account.baseUrl,
         accountId: account.accountId,
         cursor,
-        adoptedCursor: pollAdoptedCursor,
         timeoutMs: account.pollTimeoutMs,
         signal: ctx.abortSignal,
       });
-      committedAdoptedCursor = Math.max(committedAdoptedCursor, pollAdoptedCursor);
       if (!ready) {
         ready = true;
         ctx.setStatus(channelReadyPatch({ accountId: account.accountId }));
       }
       cursor = result.cursor;
       for (const event of result.events) {
-        const acknowledgement = queueEvent(event.cursor);
-        if (!acknowledgement) {
+        if (event.cursor <= queuedCursor) {
           continue;
         }
+        queuedCursor = event.cursor;
         if (event.kind !== "inbound-message") {
-          markAdopted(acknowledgement);
           continue;
         }
+        const acknowledgement: PendingEvent = { cursor: event.cursor, state: "pending" };
         if (event.message.nativeCommand) {
           dispatchControl(event.message, acknowledgement);
         } else {
           enqueueInbound(event.message, acknowledgement);
         }
       }
-      const tail = queueEvent(cursor);
-      if (tail) {
-        markAdopted(tail);
-      }
+      queuedCursor = Math.max(queuedCursor, cursor);
     }
     if (inboundError) {
       throw inboundError;

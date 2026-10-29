@@ -37,11 +37,10 @@ describe("memory scenario completed reply", () => {
 
   beforeAll(async () => {
     bus = await startQaBusServer({ state });
-    const resolvePollCursor = state.resolvePollCursor.bind(state);
-    vi.spyOn(state, "resolvePollCursor").mockImplementation((input) => {
-      const cursor = resolvePollCursor(input);
+    const recordPollReceipts = state.recordPollReceipts.bind(state);
+    vi.spyOn(state, "recordPollReceipts").mockImplementation((input) => {
+      recordPollReceipts(input);
       observeCompletion(input?.completedEventCursors ?? []);
-      return cursor;
     });
     const hasCompletedInboundEvent = state.hasCompletedInboundEvent.bind(state);
     vi.spyOn(state, "hasCompletedInboundEvent").mockImplementation((accountId, cursor) => {

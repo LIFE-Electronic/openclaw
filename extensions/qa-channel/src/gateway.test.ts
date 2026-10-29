@@ -188,7 +188,7 @@ describe("qa-channel gateway", () => {
     expect(handleQaInbound).toHaveBeenCalledTimes(1);
   });
 
-  it("records out-of-order completion while replay resumes at the adopted prefix", async () => {
+  it("replays only unfinished input after out-of-order completion", async () => {
     const { state, bus, messages } = await busWithMessages("first", "second", "/stop");
     let pollCount = 0;
     bus.server.on("request", (request) => {
@@ -207,7 +207,7 @@ describe("qa-channel gateway", () => {
       }
       if (restarting) {
         recoveredMessageIds.push(message.id);
-        if (recoveredMessageIds.length === messages.length - 1) {
+        if (recoveredMessageIds.length === 1) {
           restartedController.abort();
         }
       }
@@ -229,7 +229,7 @@ describe("qa-channel gateway", () => {
 
     expect(state.hasCompletedInboundEvent("default", 2)).toBe(false);
     expect(state.hasCompletedInboundEvent("default", 3)).toBe(true);
-    expect(state.resolvePollCursor({ accountId: "default" })).toBe(1);
+    expect(state.poll().events.map((event) => event.cursor)).toEqual([2]);
 
     restarting = true;
     const restartedGateway = startGateway(bus.baseUrl, {
@@ -238,9 +238,7 @@ describe("qa-channel gateway", () => {
     });
     try {
       await vi.waitFor(() => {
-        expect(new Set(recoveredMessageIds)).toEqual(
-          new Set(messages.slice(1).map((message) => message.id)),
-        );
+        expect(new Set(recoveredMessageIds)).toEqual(new Set([messages[1]!.id]));
       });
     } finally {
       restartedController.abort();
@@ -297,14 +295,10 @@ describe("qa-channel gateway", () => {
     expect(state.hasCompletedInboundEvent("default", 1)).toBe(true);
   });
 
-  it("lets native adoption pass an unadopted input without acknowledging it", async () => {
+  it("does not replay an adopted native control behind an unadopted input", async () => {
     const { state, bus } = await busWithMessages("deferred", "/stop");
     const controller = new AbortController();
-    const deferred =
-      Promise.withResolvers<
-        NonNullable<Parameters<typeof handleQaInbound>[0]["turnAdoptionLifecycle"]>
-      >();
-    const controlAdopted = Promise.withResolvers<number>();
+    const controlAdopted = Promise.withResolvers<void>();
     const control = Promise.withResolvers<void>();
     const input = Promise.withResolvers<void>();
     vi.mocked(handleQaInbound).mockImplementation(async ({ message, turnAdoptionLifecycle }) => {
@@ -312,41 +306,60 @@ describe("qa-channel gateway", () => {
         throw new Error("missing input adoption lifecycle");
       }
       if (message.text === "deferred") {
-        deferred.resolve(turnAdoptionLifecycle);
         await input.promise;
         return;
       }
       await turnAdoptionLifecycle.onAdopted();
-      controlAdopted.resolve(state.resolvePollCursor({ accountId: "default" }));
+      controlAdopted.resolve();
       await control.promise;
     });
     const gateway = startGateway(bus.baseUrl, {
       abortSignal: controller.signal,
       pollTimeoutMs: 10,
     });
-    try {
-      const lifecycle = await deferred.promise;
-      expect(await controlAdopted.promise).toBe(0);
-      expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
-      await lifecycle.onAdopted();
-      expect(state.resolvePollCursor({ accountId: "default" })).toBe(2);
-      expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
-    } finally {
-      input.resolve();
-      control.resolve();
+    const stopped = gateway.catch((error: unknown) => error);
+    const interrupt = () => {
       controller.abort();
-      await gateway;
+      input.reject(new Error("interrupted"));
+      control.reject(new Error("interrupted"));
+    };
+    try {
+      await controlAdopted.promise;
+      const restartedPoll = await pollQaBus({
+        baseUrl: bus.baseUrl,
+        accountId: "default",
+        cursor: 0,
+        timeoutMs: 0,
+      });
+      expect(restartedPoll.events.map((event) => event.cursor)).toEqual([1]);
+      expect([1, 2].map((cursor) => state.hasCompletedInboundEvent("default", cursor))).toEqual([
+        false,
+        false,
+      ]);
+      interrupt();
+      expect(await stopped).toEqual(new Error("interrupted"));
+
+      const restartedController = new AbortController();
+      const recoveredTexts: string[] = [];
+      vi.mocked(handleQaInbound).mockImplementation(async ({ message }) => {
+        recoveredTexts.push(message.text);
+        restartedController.abort();
+      });
+      await startGateway(bus.baseUrl, {
+        abortSignal: restartedController.signal,
+        pollTimeoutMs: 10,
+      });
+      expect(recoveredTexts).toEqual(["deferred"]);
+    } finally {
+      interrupt();
+      await stopped;
     }
-    expect([1, 2].map((cursor) => state.hasCompletedInboundEvent("default", cursor))).toEqual([
-      true,
-      true,
-    ]);
   });
 
   it.each([
-    { failure: "after adoption", adopted: 1, error: "inbound failed" },
-    { failure: "abandoned input", adopted: 0, error: "QA input abandoned before adoption" },
-  ])("preserves transport custody: $failure", async ({ failure, adopted, error }) => {
+    { failure: "after adoption", replayed: false, error: "inbound failed" },
+    { failure: "abandoned input", replayed: true, error: "QA input abandoned before adoption" },
+  ])("preserves transport custody: $failure", async ({ failure, replayed, error }) => {
     const { state, bus } = await busWithMessages("failing input");
     vi.mocked(handleQaInbound).mockImplementation(async ({ turnAdoptionLifecycle }) => {
       if (failure === "abandoned input") {
@@ -360,7 +373,7 @@ describe("qa-channel gateway", () => {
     });
 
     await expect(startGateway(bus.baseUrl)).rejects.toThrow(error);
-    expect(state.resolvePollCursor({ accountId: "default" })).toBe(adopted);
+    expect(state.poll().events.map((event) => event.cursor)).toEqual(replayed ? [1] : []);
     expect(state.hasCompletedInboundEvent("default", 1)).toBe(false);
   });
 
