@@ -1,7 +1,9 @@
-import { renderConnectCommand } from "../../../components/connect-command.ts";
-import "../../../components/modal-dialog.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
-import { LitContent } from "../../../lit/solid-content.tsx";
+import { ConnectCommand } from "../../../components/solid/connect-command.tsx";
+import "../../../components/modal-dialog.tsx";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 export type ContinueInTerminalDialogProps = { command: string; onClose: () => void };
 
@@ -18,7 +20,7 @@ export function ContinueInTerminalDialog(props: ContinueInTerminalDialogProps) {
           <h2>{t("chat.sessionHeader.continueInTerminal.title")}</h2>
           <p>{t("chat.sessionHeader.continueInTerminal.description")}</p>
         </header>
-        <LitContent value={renderConnectCommand(props.command)} />
+        <ConnectCommand command={props.command} />
         <p class="continue-in-terminal-dialog__note">
           {t("chat.sessionHeader.continueInTerminal.authNote")}
         </p>

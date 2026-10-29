@@ -497,6 +497,11 @@ public struct OpenClawChatMessage: Codable, Hashable, Identifiable, Sendable {
     var senderSession: AnyCodable?
     public let model: String?
 
+    // Transient projection fields; deliberately absent from CodingKeys.
+    var presentationBlockIndex: Int?
+    var presentationOwnsFooter = true
+    var presentationCompletedReply: Bool?
+    var presentationRecordedToolResults: [OpenClawChatMessageContent] = []
     public var id: UUID = .init()
     public var transcriptMessageID: String?
     public var activity: [OpenClawAgentActivityItem]?
@@ -559,6 +564,7 @@ public struct OpenClawChatMessage: Codable, Hashable, Identifiable, Sendable {
         case senderLabel
         case senderSession
         case phase
+        case activity
         case streamFallback = "openclawStreamFallback"
         case content
         case timestamp
@@ -659,6 +665,7 @@ public struct OpenClawChatMessage: Codable, Hashable, Identifiable, Sendable {
         self.senderSession = try? container.decode(AnyCodable.self, forKey: .senderSession)
         self.sourceMetadata = decodedOpenClaw
         self.phase = try container.decodeIfPresent(String.self, forKey: .phase)
+        self.activity = try? container.decodeIfPresent([OpenClawAgentActivityItem].self, forKey: .activity)
         self.turnBoundary = decodedOpenClaw?.turnBoundary
         self.steerTargetRunID = decodedOpenClaw?.steerTargetRunId
         self.streamFallback = try? container.decode(OpenClawChatStreamFallback.self, forKey: .streamFallback)
@@ -765,6 +772,7 @@ public struct OpenClawChatMessage: Codable, Hashable, Identifiable, Sendable {
         try container.encodeIfPresent(self.senderLabel, forKey: .senderLabel)
         try container.encodeIfPresent(self.senderSession, forKey: .senderSession)
         try container.encodeIfPresent(self.phase, forKey: .phase)
+        try container.encodeIfPresent(self.activity, forKey: .activity)
         try container.encodeIfPresent(self.streamFallback, forKey: .streamFallback)
         try container.encodeIfPresent(self.timestamp, forKey: .timestamp)
         if self.transcriptMessageID != nil || self.transcriptRunID != nil || self.isTruncated || self
@@ -851,6 +859,7 @@ public struct OpenClawChatSessionInfo: Codable, Sendable {
     public let agentId: String?
     public let hasActiveRun: Bool?
     public let activeRunIds: [String]?
+    public let reasoningLevel: String?
 
     // periphery:ignore - package tests construct history fixtures; app consumers decode this payload.
     public init(hasActiveRun: Bool?, activeRunIds: [String]? = nil, key: String? = nil, agentId: String? = nil) {
@@ -858,6 +867,7 @@ public struct OpenClawChatSessionInfo: Codable, Sendable {
         self.agentId = agentId
         self.hasActiveRun = hasActiveRun
         self.activeRunIds = activeRunIds
+        self.reasoningLevel = nil
     }
 }
 

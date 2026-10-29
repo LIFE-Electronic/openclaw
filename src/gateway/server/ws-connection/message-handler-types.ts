@@ -13,6 +13,7 @@ import type { DeviceBootstrapProfile } from "../../../shared/device-bootstrap-pr
 import type { GatewayAuthPolicy } from "../../auth-policy.types.js";
 import type { AuthRateLimiter } from "../../auth-rate-limit.js";
 import type { GatewayAuthResult, ResolvedGatewayAuth } from "../../auth.js";
+import type { GitHubIdentityPreparationTiming } from "../../github-user-identity.types.js";
 import type { GatewayAttributedIngress } from "../../ingress-attribution.js";
 import type { GatewayMethodRegistry } from "../../methods/registry.js";
 import type { NodePairingAutoApproveClientIpSource } from "../../node-pairing-auto-approve.types.js";
@@ -73,6 +74,8 @@ export type GatewayWsMessageHandlerParams = {
   /** Browser-origin fallback limiter (loopback is never exempt). */
   browserRateLimiter?: AuthRateLimiter;
   nodeReapprovalCoordinator?: NodeReapprovalCoordinator;
+  isConnectPending?: () => boolean;
+  startupMethodsReady?: Promise<void>;
   isStartupPending?: () => boolean;
   isPendingWorkerNodeSetup?: (setupId: string, deviceId: string) => boolean;
   admitsNodeSetupCompletion?: (setup: CloudWorkerSetupMutationAdmission) => boolean;
@@ -100,17 +103,20 @@ export type GatewayWsMessageHandlerParams = {
 };
 
 export type GatewayConnectAttachTiming =
+  | GitHubIdentityPreparationTiming
   | "deviceAuthorizationMs"
   | "deviceLookupMs"
-  | "deviceMetadataMs"
   | "deviceTokensMs"
   | "nodePreparationMs"
   | "identityMs"
   | "profileEnsureMs"
   | "profileAuthorityMs"
+  | "profileProjectionMs"
   | "scopeGrantMs"
   | "operatorDeviceMs"
-  | "sessionRegistrationMs";
+  | "sessionRegistrationMs"
+  | "snapshotMs"
+  | "helloDescriptorsMs";
 
 export type GatewayConnectPhaseContext = {
   handler: GatewayWsMessageHandlerParams;
@@ -145,6 +151,11 @@ export type GatewayConnectPhaseContext = {
   setConnectPhase?: (phase: "profile-ensure" | "profile-authority" | "registration") => void;
   isWebchatConnect: (params: ConnectParams | null | undefined) => boolean;
   runDetachedConnectWork: (run: () => Promise<void>, onError: (error: unknown) => void) => void;
+  pendingDeviceMetadata?: {
+    deviceId: string;
+    identity: import("../../../infra/device-pairing-access.js").DevicePairingAccessIdentity;
+    patch: Partial<import("../../../infra/device-pairing-core.types.js").PairedDeviceMetadataPatch>;
+  };
   pendingNodePairingCleanup: {
     value?: import("../../../infra/device-pairing-node.js").NodePairingCleanupClaim;
   };

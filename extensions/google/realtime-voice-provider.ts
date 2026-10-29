@@ -17,6 +17,7 @@ import {
   TurnCoverage,
 } from "@google/genai";
 import { createDeferred } from "openclaw/plugin-sdk/concurrency-runtime";
+import { materializeErrorStack } from "openclaw/plugin-sdk/error-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/provider-onboard";
 import type {
   RealtimeVoiceAudioFormat,
@@ -356,8 +357,7 @@ type GoogleLiveConnectionAttempt = {
 };
 
 type GooglePendingToolResponse = {
-  callId: string;
-  payload: string;
+  payload: FunctionResponse;
   byteLength: number;
 };
 
@@ -696,7 +696,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
           functionResponses: [normalizedResponse],
         });
       } else {
-        this.queueToolResponseForReconnect(callId, serializedResponse);
+        this.queueToolResponseForReconnect(normalizedResponse, serializedResponse);
       }
       if (options?.willContinue !== true) {
         this.pendingFunctionNames.delete(callId);
@@ -776,16 +776,12 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private handleMessage(message: LiveServerMessage): void {
-    const owner = this.connectionOwner;
     this.captureSessionLifecycle(message);
     if (message.setupComplete) {
       this.handleSetupComplete();
     }
     if (message.serverContent) {
       this.handleServerContent(message.serverContent);
-      if (this.connectionOwner !== owner) {
-        return;
-      }
     }
     if (message.toolCall) {
       this.handleToolCall(message.toolCall);
@@ -843,13 +839,9 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private handleServerContent(content: LiveServerContent): void {
-    const owner = this.connectionOwner;
     if (content.interrupted) {
       this.responseInterrupted = true;
       this.config.onClearAudio("barge-in");
-      if (this.connectionOwner !== owner) {
-        return;
-      }
     }
 
     if (content.inputTranscription) {
@@ -877,13 +869,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
         const audio = this.toOutputAudio(pcm, sampleRate);
         if (audio.length > 0) {
           this.config.onAudio(audio);
-          if (this.connectionOwner !== owner) {
-            return;
-          }
           this.config.onMark?.(`audio-${randomUUID()}`);
-          if (this.connectionOwner !== owner) {
-            return;
-          }
         }
       }
     }
@@ -891,7 +877,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       this.flushPendingTranscript("assistant");
     }
     const done = isResponseDone(this.model, content.interactionStatus, this.responseInterrupted);
-    if (content.turnComplete && this.connectionOwner === owner && done) {
+    if (content.turnComplete && done) {
       const status = this.responseInterrupted ? "cancelled" : "completed";
       this.responseInterrupted = false;
       this.config.onResponseDone?.({ status });
@@ -899,7 +885,6 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private appendTranscript(role: RealtimeVoiceRole, transcript: GoogleLiveTranscription): boolean {
-    const owner = this.connectionOwner;
     // Live 3.1 and 3.8 emit complete input utterances without the optional finished flag.
     const completeInput = role === "user" && emitsCompleteInputTranscripts(this.model);
     if (transcript.text) {
@@ -914,15 +899,12 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       pending.byteCount += bytes;
       if (!completeInput) {
         this.emitTranscript(role, transcript.text, false);
-        if (this.connectionOwner !== owner) {
-          return false;
-        }
       }
     }
     if (transcript.finished || completeInput) {
       this.flushPendingTranscript(role);
     }
-    return this.connectionOwner === owner;
+    return true;
   }
 
   private flushPendingTranscript(role: RealtimeVoiceRole): void {
@@ -962,6 +944,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     if (this.terminalError) {
       return;
     }
+    materializeErrorStack(error);
     this.terminalError = error;
     const session = this.detachSession({ clearInputAudio: false });
     try {
@@ -1049,17 +1032,15 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     this.pendingToolResponseBytes = 0;
   }
 
-  private queueToolResponseForReconnect(callId: string, payload: string): void {
-    const payloadBytes = Buffer.byteLength(payload, "utf8");
+  private queueToolResponseForReconnect(payload: FunctionResponse, serialized: string): void {
+    const payloadBytes = Buffer.byteLength(serialized, "utf8");
     if (
       this.pendingToolResponses.length >= GOOGLE_REALTIME_MAX_PENDING_TOOL_RESPONSES ||
       this.pendingToolResponseBytes + payloadBytes > GOOGLE_REALTIME_MAX_PENDING_TOOL_RESPONSE_BYTES
     ) {
       throw new Error("Google Live reconnect tool-response buffer limit exceeded");
     }
-    // Store the serialized wire shape so a stalled reconnect cannot retain an
-    // arbitrarily large caller-owned object graph through the tool result.
-    this.pendingToolResponses.push({ callId, payload, byteLength: payloadBytes });
+    this.pendingToolResponses.push({ payload, byteLength: payloadBytes });
     this.pendingToolResponseBytes += payloadBytes;
   }
 
@@ -1067,7 +1048,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     const retained: GooglePendingToolResponse[] = [];
     let removed = false;
     for (const response of this.pendingToolResponses) {
-      if (response.callId === callId) {
+      if (response.payload.id === callId) {
         this.pendingToolResponseBytes -= response.byteLength;
         removed = true;
       } else {
@@ -1090,7 +1071,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
           break;
         }
         session.sendToolResponse({
-          functionResponses: [JSON.parse(response.payload) as FunctionResponse],
+          functionResponses: [response.payload],
         });
         this.pendingToolResponses.shift();
         this.pendingToolResponseBytes -= response.byteLength;

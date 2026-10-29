@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { getDatabaseEngineSelection } from "../infra/database-engine/context.js";
+import { getDatabaseEngineInput } from "../infra/database-engine/context.js";
+import { withPersistedStateOwnerInspection } from "../infra/gateway-state-owner-record.js";
 import {
   assertStateDatabaseAccessAllowed,
   getStateDatabaseSchemaLease,
@@ -22,14 +23,22 @@ import {
   parseExternalOwnership,
 } from "./openclaw-state-ownership.js";
 
-/** Check write admission; callers may defer orphan-sidecar recovery until mutation is certain. */
-export async function assertOpenClawStateWriteAllowedAtPath(options: {
+type StateWriteAdmissionOptions = {
   databasePath: string;
   env?: NodeJS.ProcessEnv;
   recoverOrphanedSidecars?: boolean;
   signal?: AbortSignal;
   openStateSchemaReadAdmission?: OpenClawStateSchemaReadAdmission;
-}): Promise<void> {
+};
+
+/** Check write admission; callers may defer orphan-sidecar recovery until mutation is certain. */
+export function assertOpenClawStateWriteAllowedAtPath(
+  options: StateWriteAdmissionOptions,
+): Promise<void> {
+  return withPersistedStateOwnerInspection(() => assertWriteAllowed(options));
+}
+
+async function assertWriteAllowed(options: StateWriteAdmissionOptions): Promise<void> {
   options.signal?.throwIfAborted();
   const databasePath = path.resolve(options.databasePath);
   assertStateDatabaseAccessAllowed(databasePath);
@@ -43,7 +52,7 @@ export async function assertOpenClawStateWriteAllowedAtPath(options: {
     return;
   }
   const env = options.env ?? process.env;
-  if (getDatabaseEngineSelection()?.input) {
+  if (getDatabaseEngineInput("state")) {
     const read = await executeExistingOpenClawStateRead(
       { path: databasePath, env },
       { type: "stateBootstrap.ownership", input: { pathname: databasePath } },

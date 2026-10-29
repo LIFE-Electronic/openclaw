@@ -1,13 +1,14 @@
+import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import "../../../styles.css";
 import "../../../styles/chat.ts";
 import "../../../styles/chat/composer.css";
-import type { ChatAttachment } from "../../../lib/chat/chat-types.ts";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
-import "./chat-comment-pins.tsx";
+import { ChatCommentPins } from "./chat-comment-pins.tsx";
 import { CommentPreviewChip, CommentPreviewRow } from "./chat-comment-preview.tsx";
-import { removeChatSelectionPopup, showChatAnnotationEditor } from "./chat-selection-popup.ts";
+import { removeChatSelectionPopup, showChatAnnotationEditor } from "./chat-selection-popup.tsx";
+import { createTranscriptMessageElements } from "./chat-transcript-message-elements.ts";
 
 const longSelection = "Selected passage with enough words to exceed a compact preview. ".repeat(8);
 const longComment =
@@ -43,7 +44,7 @@ afterEach(() => {
 });
 
 function mountComments(count: number, top: number) {
-  container.style.cssText = `position: fixed; right: 16px; top: ${top}px`;
+  container.style.cssText = `position: fixed; right: 32px; top: ${top}px`;
   comments?.unmount();
   comments = mountSolid(
     () => (
@@ -57,15 +58,19 @@ function mountComments(count: number, top: number) {
     ),
     { container },
   );
+  flush();
   return container.querySelector<HTMLElement>(".chat-selection-annotations__chip")!;
 }
 
-async function openComments(trigger: HTMLElement) {
+async function openComments(trigger: HTMLElement, hover = false) {
   const tooltip = container.querySelector("openclaw-tooltip")!;
   await tooltip.updateComplete;
   const shown = new Promise<Event>((resolve) => {
     tooltip.addEventListener("overlay-after-show", resolve, { once: true });
   });
+  if (hover) {
+    await page.elementLocator(trigger).hover();
+  }
   trigger.focus();
   await shown;
   const body = tooltip.shadowRoot!.querySelector<HTMLElement>(".tooltip-surface")!;
@@ -103,6 +108,17 @@ function contrast(element: HTMLElement) {
 }
 
 describe("annotation chip and hovercard", () => {
+  it("keeps comment rows adjacent for list numbering and spacing", () => {
+    mountComments(3, 430);
+    const list = container.querySelector(".chat-comment-preview__list")!;
+    expect(list.querySelectorAll(":scope > .chat-comment-preview__item")).toHaveLength(3);
+    const following = list.querySelectorAll<HTMLElement>(
+      ".chat-comment-preview__item + .chat-comment-preview__item",
+    );
+    expect(following).toHaveLength(2);
+    expect(getComputedStyle(following[0]!).marginTop).toBe("12px");
+  });
+
   it.each([1440, 390])(
     "reads the final line of a long comment by keyboard (%ipx)",
     async (width) => {
@@ -165,7 +181,7 @@ describe("annotation chip and hovercard", () => {
       for (const count of [1, 3, 10]) {
         for (const top of [12, 430, 840]) {
           const trigger = mountComments(count, top);
-          const { tooltip, body } = await openComments(trigger);
+          const { tooltip, body } = await openComments(trigger, true);
           await expect
             .poll(() => {
               const card = body.getBoundingClientRect();
@@ -179,6 +195,8 @@ describe("annotation chip and hovercard", () => {
               );
             })
             .toBe(true);
+          await new Promise(requestAnimationFrame);
+          expect(trigger.matches(":hover")).toBe(true);
           const scroll = container.querySelector<HTMLElement>(".chat-comment-preview__scroll")!;
           expect(scroll.clientHeight).toBeGreaterThan(0);
           expect(scroll.clientHeight).toBeLessThanOrEqual(360);
@@ -209,6 +227,9 @@ describe("annotation chip and hovercard", () => {
           await userEvent.keyboard("{Escape}");
           await hidden;
           await expect.poll(() => tooltip.hasAttribute("open")).toBe(false);
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          expect(tooltip.hasAttribute("open")).toBe(false);
           trigger.blur();
         }
       }
@@ -216,19 +237,23 @@ describe("annotation chip and hovercard", () => {
   );
 });
 
-function openEditor(expanded = false) {
+async function openEditor(expanded = false) {
   const onSave = vi.fn();
   const onCancel = vi.fn();
   const onDelete = vi.fn();
-  showChatAnnotationEditor({
-    paneId: "pane-a",
-    anchorRect: new DOMRect(120, 120, 100, 20),
-    comment: "",
-    expanded,
-    onSave,
-    onCancel,
-    onDelete,
-  });
+  const owner = container;
+  await showChatAnnotationEditor(
+    {
+      paneId: "pane-a",
+      anchorRect: new DOMRect(120, 120, 100, 20),
+      comment: "",
+      expanded,
+      onSave,
+      onCancel,
+      onDelete,
+    },
+    () => owner.isConnected,
+  );
   return {
     input: document.querySelector<HTMLTextAreaElement>(".chat-annotation-editor textarea")!,
     popup: document.querySelector<HTMLElement>(".chat-annotation-editor")!,
@@ -272,7 +297,7 @@ describe("annotation editor", () => {
       }
     };
     for (const expanded of [false, true]) {
-      const { input, popup } = openEditor(expanded);
+      const { input, popup } = await openEditor(expanded);
       input.blur();
       const idleBorder = getComputedStyle(popup).borderTopColor;
       const controls = [input, ...popup.querySelectorAll("button")].filter(
@@ -302,7 +327,7 @@ describe("annotation editor", () => {
   it.each(["Cancel", "Delete comment"])(
     "activates %s with Enter without saving edits",
     async (name) => {
-      const { input, popup, onSave, onCancel, onDelete } = openEditor(true);
+      const { input, popup, onSave, onCancel, onDelete } = await openEditor(true);
       await page.elementLocator(input).fill("Unsaved replacement");
       const control = page.getByRole("button", { name, exact: true });
       control.element().focus();
@@ -323,7 +348,7 @@ describe("annotation editor", () => {
     "grows to five lines and scrolls without fading editable text ($width px, editing=$expanded)",
     async ({ width, expanded }) => {
       await page.viewport(width, 900);
-      const { input, popup } = openEditor(expanded);
+      const { input, popup } = await openEditor(expanded);
       const oneLine = input.getBoundingClientRect().height;
       const originalTop = popup.getBoundingClientRect().top;
       const lineHeight = Number.parseFloat(getComputedStyle(input).lineHeight);
@@ -356,7 +381,7 @@ describe("annotation editor", () => {
   it.each([false, true])(
     "supports Enter, Shift+Enter and Escape (editing=%s)",
     async (expanded) => {
-      const { input, popup, onSave, onCancel } = openEditor(expanded);
+      const { input, popup, onSave, onCancel } = await openEditor(expanded);
       await page.elementLocator(input).fill("First");
       await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
       expect(input.value).toBe("First\n");
@@ -369,7 +394,7 @@ describe("annotation editor", () => {
       expect(onSave).toHaveBeenCalledExactlyOnceWith("First\n");
       expect(popup.isConnected).toBe(false);
       expect(onCancel).not.toHaveBeenCalled();
-      const cancelled = openEditor(expanded);
+      const cancelled = await openEditor(expanded);
       await page.elementLocator(cancelled.input).fill("Discard this draft");
       await userEvent.keyboard("{Escape}");
       expect(cancelled.onSave).not.toHaveBeenCalled();
@@ -410,10 +435,13 @@ describe("comment pins", () => {
     const before = bubble("before");
     const source = bubble("source");
     const after = bubble("after");
-    const pins = document.createElement("openclaw-chat-comment-pins") as HTMLElement & {
-      attachments: ChatAttachment[];
-      sessionKey: string;
-      updateComplete: Promise<unknown>;
+    const messageElements = createTranscriptMessageElements(() => undefined);
+    messageElements.forKey("source")(source);
+    onTestFinished(() => messageElements.dispose());
+    const pins = new ChatCommentPins.Element();
+    pins.transcript = {
+      messageElements,
+      contentElement: thread.querySelector<HTMLDivElement>(".chat-thread-inner")!,
     };
     pins.attachments = [
       {

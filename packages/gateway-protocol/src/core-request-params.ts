@@ -1,5 +1,6 @@
 import type { Static } from "typebox";
 import type * as AgentSchema from "./schema/agent.js";
+import type { AgentsAvatarGenerateParams } from "./schema/agents-models-skills.js";
 import type { BackupRecordOutcomeParams, BackupStatusParams } from "./schema/backup.js";
 import type * as BoardSchema from "./schema/board.js";
 import type { CanvasDocumentPreviewParams, CanvasDocumentViewParams } from "./schema/canvas.js";
@@ -19,6 +20,7 @@ import type * as PortalSchema from "./schema/portals.js";
 import type { PresenceActivityParams, PresenceQueryParams } from "./schema/presence.js";
 import type * as GitHubSchema from "./schema/session-github-publication.js";
 import type { StorageLocationsListParams, StorageLocationsProbeParams } from "./schema/storage.js";
+import type * as TemplateDraftSchema from "./schema/template-drafts.js";
 import type {
   ThemesListParams,
   ThemesGetParams,
@@ -31,6 +33,12 @@ import type * as UsersSchema from "./schema/users.js";
 
 /** Schema-derived payload ownership for statically validated core Gateway methods. */
 export type GatewayCoreRequestParams = {
+  "agents.avatar.generate": AgentsAvatarGenerateParams;
+  "templates.drafts.create": TemplateDraftSchema.TemplatesDraftsCreateParams;
+  "templates.drafts.read": TemplateDraftSchema.TemplatesDraftsReadParams;
+  "templates.drafts.save": TemplateDraftSchema.TemplatesDraftsSaveParams;
+  "templates.drafts.review": TemplateDraftSchema.TemplatesDraftsReviewParams;
+  "templates.drafts.publish": TemplateDraftSchema.TemplatesDraftsPublishParams;
   "catalog.browse": CatalogBrowseParams;
   "catalog.searchKeywords": CatalogSearchKeywordsParams;
   "backup.status": BackupStatusParams;

@@ -1,10 +1,13 @@
 import { createMemo, For, Show } from "solid-js";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import { resolveIdentityHue } from "../../../lib/identity-avatar.ts";
-import { getLocale, t } from "../../../lib/reactive/i18n.ts";
-import { LitContent } from "../../../lit/solid-content.tsx";
-import { renderChatAvatar } from "../chat-avatar.ts";
+import { getLocale, t, registerEnglishCatalog } from "../../../lib/reactive/i18n.ts";
+import { participantPalette } from "../../../lib/reactive/participant-palette.ts";
+import { ChatAvatar } from "../chat-avatar.ts";
 import type { ChatTypingActorView, ChatTypingOverflow } from "../chat-typing-presence.ts";
-import { renderChatAuthorAvatar } from "./chat-author-avatar.ts";
+import { ChatAuthorAvatar } from "./chat-author-avatar.ts";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 let listFormatter: Intl.ListFormat | undefined;
 let listLocale: string | undefined;
@@ -75,7 +78,7 @@ function TypingRow(props: { actor: ChatTypingActorView; avatarPlacement: AvatarP
       <div class="agent-chat__typing-row-content">
         <div
           class="chat-group user chat-group--peer chat-group--sender-tint chat-group--with-footer chat-group--typing"
-          style={`--chat-sender-hue: ${resolveIdentityHue(sender())}`}
+          style={participantPalette.read()?.style(resolveIdentityHue(sender()))}
           aria-live="off"
         >
           <div class="chat-group-messages">
@@ -104,7 +107,7 @@ function TypingRow(props: { actor: ChatTypingActorView; avatarPlacement: AvatarP
                   </span>
                 </Show>
                 <Show when={props.avatarPlacement === "gutter"}>
-                  <LitContent value={renderChatAvatar("user", undefined, undefined, sender())} />
+                  <ChatAvatar role="user" sender={sender()} />
                 </Show>
               </div>
             </div>
@@ -112,7 +115,7 @@ function TypingRow(props: { actor: ChatTypingActorView; avatarPlacement: AvatarP
           <div class="chat-group-footer chat-group-footer--persistent-identity">
             <div class="chat-group-footer__meta">
               <Show when={props.avatarPlacement === "footer"}>
-                <LitContent value={renderChatAuthorAvatar(sender())} />
+                <ChatAuthorAvatar sender={sender()} />
               </Show>
               <span class="chat-sender-name agent-chat__typing-preview-label">
                 {props.actor.label}
@@ -198,12 +201,12 @@ export function ChatTypingIndicator(props: {
                     <For each={peers()} keyed={(actor) => actor.id}>
                       {(actor) => (
                         <span class="agent-chat__typing-person">
-                          <LitContent
-                            value={renderChatAuthorAvatar({
+                          <ChatAuthorAvatar
+                            sender={{
                               id: actor().id,
                               name: actor().label,
                               identity: { type: "profile", id: actor().id },
-                            })}
+                            }}
                           />
                         </span>
                       )}

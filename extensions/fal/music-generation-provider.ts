@@ -39,7 +39,7 @@ function buildFalMusicRequestBody(
     return {
       prompt: req.prompt,
       ...(req.instrumental === true ? { instrumental: true } : {}),
-      ...(typeof req.durationSeconds === "number"
+      ...(req.durationSeconds !== undefined
         ? { [isStableAudio ? "seconds_total" : "duration"]: req.durationSeconds }
         : {}),
     };
@@ -52,27 +52,13 @@ function buildFalMusicRequestBody(
     ...(lyrics ? { lyrics } : {}),
     ...(req.instrumental === true ? { is_instrumental: true } : {}),
     ...(!lyrics && req.instrumental !== true ? { lyrics_optimizer: true } : {}),
-    ...(typeof req.durationSeconds === "number" ? { duration: req.durationSeconds } : {}),
+    ...(req.durationSeconds !== undefined ? { duration: req.durationSeconds } : {}),
     audio_setting: {
       sample_rate: 44_100,
       bitrate: 256_000,
       format: req.format ?? "mp3",
     },
   };
-}
-
-function resolveFalMusicMetadata(payload: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(payload)) {
-    return undefined;
-  }
-  const metadata: Record<string, unknown> = {};
-  for (const key of ["seed", "tags"]) {
-    const value = payload[key];
-    if (value !== undefined && value !== null) {
-      metadata[key] = value;
-    }
-  }
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 export function buildFalMusicGenerationProvider(): MusicGenerationProvider {
@@ -139,17 +125,25 @@ export function buildFalMusicGenerationProvider(): MusicGenerationProvider {
         requestFailedMessage: "fal generated music download failed",
         maxBytes: resolveGeneratedMediaMaxBytes(req.cfg, "audio"),
       });
-      const lyrics = isRecord(payload) ? normalizeOptionalString(payload.lyrics) : undefined;
+      const record = isRecord(payload) ? payload : undefined;
+      const lyrics = normalizeOptionalString(record?.lyrics);
+      const metadata: Record<string, unknown> = {};
+      for (const key of ["seed", "tags"]) {
+        const value = record?.[key];
+        if (value !== undefined && value !== null) {
+          metadata[key] = value;
+        }
+      }
       return {
         tracks: [track],
         model,
         ...(lyrics ? { lyrics: [lyrics] } : {}),
         metadata: {
-          ...resolveFalMusicMetadata(payload),
+          ...metadata,
           ...(track.metadata?.url ? { audioUrl: track.metadata.url } : {}),
           instrumental: req.instrumental === true,
           ...(req.format ? { requestedFormat: req.format } : {}),
-          ...(typeof req.durationSeconds === "number"
+          ...(req.durationSeconds !== undefined
             ? { requestedDurationSeconds: req.durationSeconds }
             : {}),
         },
