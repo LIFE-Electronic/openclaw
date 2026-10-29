@@ -32,6 +32,7 @@ export async function startQaGatewayAccount(
   let inboundError: Error | undefined;
   let queuedInbound = Promise.resolve();
   let queuedAcknowledgements = Promise.resolve();
+  const inboundAbort = new AbortController();
   const inboundTasks = new Set<Promise<void>>();
   type PendingEvent = {
     cursor: number;
@@ -41,6 +42,9 @@ export async function startQaGatewayAccount(
   const completedEventCursors = new Set<number>();
   const captureInboundError = (error: unknown) => {
     inboundError ??= error instanceof Error ? error : new Error(String(error));
+    // Fatal account failure must retire retained followups before joining them.
+    // Ordinary external shutdown still drains their full delivery lifetime.
+    inboundAbort.abort(inboundError);
   };
   const flushAcknowledgements = () => {
     const flush = queuedAcknowledgements.then(async () => {
@@ -91,6 +95,7 @@ export async function startQaGatewayAccount(
       onFollowupQueued,
       // Keep QA collect batching; core awaits adoption for every collected source.
       turnAdoptionLifecycle: {
+        abortSignal: inboundAbort.signal,
         onAdopted: async () => {
           if (acknowledgementStopped || event.state === "abandoned") {
             throw inboundError ?? new Error("QA input adoption is no longer available");
@@ -183,14 +188,17 @@ export async function startQaGatewayAccount(
       throw inboundError;
     }
   } catch (error) {
-    if (!(error instanceof Error) || error.name !== "AbortError") {
+    if (
+      !(error instanceof Error && error.name === "AbortError" && ctx.abortSignal.aborted) ||
+      inboundError
+    ) {
+      captureInboundError(error);
       ctx.setStatus({
         accountId: account.accountId,
         connected: false,
         lifecycle: "recovering",
-        lastError: error instanceof Error ? error.message : String(error),
+        lastError: inboundError!.message,
       });
-      throw error;
     }
   } finally {
     try {

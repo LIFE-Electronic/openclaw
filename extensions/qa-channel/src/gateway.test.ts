@@ -157,16 +157,19 @@ describe("qa-channel gateway", () => {
     const first = Promise.withResolvers<void>();
     const secondStarted = Promise.withResolvers<void>();
     const second = Promise.withResolvers<void>();
-    vi.mocked(handleQaInbound).mockImplementation(async ({ message, onFollowupQueued }) => {
-      if (message.text === "first") {
-        firstStarted.resolve();
-        await first.promise;
-      } else {
-        onFollowupQueued?.();
-        secondStarted.resolve();
-        await second.promise;
-      }
-    });
+    vi.mocked(handleQaInbound).mockImplementation(
+      async ({ message, onFollowupQueued, turnAdoptionLifecycle }) => {
+        if (message.text === "first") {
+          firstStarted.resolve();
+          await first.promise;
+        } else {
+          onFollowupQueued?.();
+          secondStarted.resolve();
+          await second.promise;
+        }
+        expect(turnAdoptionLifecycle?.abortSignal?.aborted).toBe(false);
+      },
+    );
     const gateway = startGateway(baseUrl, { abortSignal: controller.signal });
     try {
       await firstStarted.promise;
