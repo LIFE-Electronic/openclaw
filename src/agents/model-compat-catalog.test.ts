@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   modelTransportRoutesMatch,
   resolveCatalogOwnedModelCompat,
@@ -11,6 +11,23 @@ describe("catalog-owned model compat", () => {
     baseUrl: "https://api.example.test/v1/",
   };
   const catalogCompat = { supportsTools: true, supportsTemperature: false };
+
+  it.each([
+    ["openai-completions", false],
+    ["openai-responses", true],
+    [" OPENAI-RESPONSES ", true],
+    [undefined, true],
+  ])("avoids URL parsing for an identical URL with API %s", (api, expected) => {
+    const parse = vi.spyOn(URL, "parse");
+    try {
+      expect(modelTransportRoutesMatch(catalogRoute, { api, baseUrl: catalogRoute.baseUrl })).toBe(
+        expected,
+      );
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
 
   it("uses catalog capabilities when config keeps the catalog route", () => {
     expect(
