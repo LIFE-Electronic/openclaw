@@ -74,6 +74,7 @@ export async function performSessionGitHubPreparation(
     throw new Error("The PR preparation session is unavailable.");
   }
   const session = { agentId: loaded.agentId, sessionKey: loaded.canonicalKey };
+  const publicationSession = { ...session, sessionId: loaded.entry.sessionId };
   const admitted = await prepareGitHubPublicationRequesterV2(options, session);
   using _ = { [Symbol.dispose]: admitted.release };
   // Publication admits other writers; replacing this conversation's source is its own requester's.
@@ -109,7 +110,7 @@ export async function performSessionGitHubPreparation(
   const inspectCurrent = async (assertWorkspace: () => void) => {
     const inspected = await inspectOwnGitHubPullRequest({
       pullRequestUrl: params.pullRequestUrl,
-      session: { ...session, sessionId: loaded.entry!.sessionId },
+      session: publicationSession,
       requester: admitted.requester,
       assertCurrent: assertWorkspace,
     });
