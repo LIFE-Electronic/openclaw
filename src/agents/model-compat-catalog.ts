@@ -44,15 +44,9 @@ export function modelTransportRoutesMatch(
 ): boolean {
   const catalogApi = normalizeApi(catalogRoute.api);
   const configuredApi = normalizeApi(configuredRoute.api) || catalogApi;
-  if (configuredApi !== catalogApi) {
-    return false;
-  }
-  // Identical URLs normalize equally under the same API; catalog overlays hit this per model.
-  if (catalogRoute.baseUrl === configuredRoute.baseUrl) {
-    return true;
-  }
   const catalogBaseUrl = normalizeBaseUrl(catalogRoute.baseUrl, catalogApi);
   return (
+    configuredApi === catalogApi &&
     (normalizeBaseUrl(configuredRoute.baseUrl, configuredApi) || catalogBaseUrl) === catalogBaseUrl
   );
 }
