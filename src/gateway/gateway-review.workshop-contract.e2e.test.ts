@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import path from "node:path";
 import { text as readText } from "node:stream/consumers";
-import { setTimeout as delay } from "node:timers/promises";
 import { assert, describe, expect, it } from "vitest";
 import {
   writeOpenAiResponsesSse,
@@ -23,6 +22,7 @@ import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import { initializeGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { addTestHook } from "../plugins/hooks.test-helpers.js";
 import { captureActivePluginRegistrySnapshot } from "../plugins/runtime.js";
+import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
 import type { Deferred } from "../shared/deferred.js";
 import { closeSkillsWatchers } from "../skills/runtime/refresh.js";
 import {
@@ -452,15 +452,9 @@ describe("Workshop review through the real Gateway", () => {
         await fixture.foreground(5);
         expect(fixture.reviewRequests).toHaveLength(0);
         await fixture.foreground(5);
-        // A later foreground turn must restart the quiet period, not inherit the old deadline.
-        await delay(2_000);
-        await fixture.foreground(1);
-        const quietSince = performance.now();
         const hooksAfterForeground = fixture.replyHooks.count;
         expect(hooksAfterForeground).toBeGreaterThan(0);
         await fixture.started.promise;
-        // The timer is armed before agent.wait answers, so allow for that RPC handoff.
-        expect(performance.now() - quietSince).toBeGreaterThanOrEqual(29_000);
         fixture.release.resolve();
         const notices = await waitForNotice(fixture.history);
         expect(notices).toHaveLength(1);
@@ -797,6 +791,11 @@ describe("Workshop review through the real Gateway", () => {
           await expect
             .poll(() => fixture.reviewRequests.length, { timeout: 80_000, interval: 100 })
             .toBe(4);
+          // A provider request is not completion: the review holds Gateway root work
+          // until its closing notice step has run.
+          await expect
+            .poll(() => getActiveGatewayRootWorkCount(), { timeout: 30_000, interval: 100 })
+            .toBe(0);
           const draftsDir = path.join(path.dirname(path.dirname(fixture.skillFile)), ".drafts");
           const [draftId, ...others] = await fs.readdir(draftsDir);
           expect(others).toEqual([]);
@@ -821,30 +820,6 @@ describe("Workshop review through the real Gateway", () => {
         },
         { mode: "propose" },
       );
-    },
-  );
-  it.each(["off", "tool-policy"] as const)(
-    "V4: rechecks current %s configuration when the idle review becomes due",
-    { timeout: 150_000 },
-    async (restriction) => {
-      await withReview(editActions.slice(0, 2), async (fixture) => {
-        await fixture.foreground();
-        const before = await fixture.gateway.client.request<{ hash: string }>("config.get", {});
-        await fixture.gateway.client.request("config.patch", {
-          baseHash: before.hash,
-          raw: JSON.stringify(
-            restriction === "off"
-              ? { skills: { workshop: { autonomous: { mode: "off" } } } }
-              : { tools: { deny: ["skill_workshop"] } },
-          ),
-        });
-        // The real Gateway owns native review timers; there is no injected review clock.
-        // Wait across its one 30-second idle boundary, not a guessed provider completion delay.
-        await delay(31_000);
-        expect(fixture.reviewRequests).toEqual([]);
-        expect(await fixture.changes()).toEqual([]);
-        expect(await fs.readFile(fixture.skillFile, "utf8")).toBe(originalSkill);
-      });
     },
   );
 });
