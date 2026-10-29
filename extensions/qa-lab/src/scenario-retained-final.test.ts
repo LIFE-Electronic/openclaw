@@ -19,12 +19,13 @@ import { waitForCompletedQaReply } from "./suite-runtime-transport.js";
 type FinalFault =
   | "preview-only"
   | "failed-send"
+  | "failed-delete"
   | "duplicate"
   | "typed-error"
   | Partial<QaBusOutboundMessageInput>;
 
 async function startRetainedFinalScenario(fault: FinalFault = {}) {
-  const previewOnly = fault === "preview-only";
+  const previewOnly = fault === "preview-only" || fault === "failed-delete";
   const scenario = readQaScenarioById("qa-channel-failed-tool-terminal-finalization");
   if (!scenario.execution.flow) {
     throw new Error("expected retained-final scenario flow");
@@ -57,6 +58,13 @@ async function startRetainedFinalScenario(fault: FinalFault = {}) {
   const proxy = createServer((req, res) => {
     dispatchQaHttpRequest(res, async () => {
       let body = (await buffer(req)).toString();
+      if (req.url === "/v1/actions/delete" && fault === "failed-delete") {
+        deleteStarted.resolve();
+        await releaseDelete.promise;
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "injected preview deletion failure" }));
+        return;
+      }
       const finalSend = req.url === "/v1/outbound/message" && ++outboundRequests > 1;
       if (finalSend) {
         finalStarted.resolve();
@@ -202,7 +210,7 @@ async function startRetainedFinalScenario(fault: FinalFault = {}) {
       const gatewayError = await gatewaySettled;
       await closeQaHttpServer(proxy);
       await bus.stop();
-      if (gatewayError && fault !== "failed-send") {
+      if (gatewayError && fault !== "failed-send" && fault !== "failed-delete") {
         throw gatewayError;
       }
     },
@@ -303,6 +311,25 @@ describe("failed-tool scenario retained final", () => {
     expect(
       harness.state.getSnapshot().messages.filter((m) => m.direction === "outbound" && !m.deleted),
     ).toEqual([]);
+    harness.expireDeadline();
+    expect(await harness.result).toMatchObject({ status: "fail" });
+  });
+
+  it("keeps a failed preview deletion incomplete after a no-output turn", async () => {
+    await using harness = await startRetainedFinalScenario("failed-delete");
+    await harness.previewSent;
+    await harness.waitObserved;
+    harness.startFinal();
+    await harness.deleteStarted;
+    harness.releaseDelete();
+    const gatewayError = await harness.stopGateway();
+    expect(
+      harness.state.getSnapshot().messages.filter((m) => m.direction === "outbound" && !m.deleted),
+    ).toMatchObject([
+      { text: "The requested file could not be read: ENOENT. QA-FAILED-TOOL-FINALIZED-OK" },
+    ]);
+    expect(harness.completed()).toBe(false);
+    expect(gatewayError).toEqual(new Error("injected preview deletion failure"));
     harness.expireDeadline();
     expect(await harness.result).toMatchObject({ status: "fail" });
   });

@@ -514,6 +514,7 @@ export async function handleQaInbound(params: {
       },
     },
   });
+  let dispatchFailed = false;
   try {
     const result = await dispatch;
     if (!result.dispatched) {
@@ -559,7 +560,15 @@ export async function handleQaInbound(params: {
         throw new Error("QA reply did not complete delivery");
       }
     }
+  } catch (error) {
+    dispatchFailed = true;
+    throw error;
   } finally {
-    await clearPreview();
+    // Completion requires cleanup; a prior dispatch rejection still owns failure.
+    if (dispatchFailed) {
+      await clearPreview();
+    } else {
+      await preview.clear();
+    }
   }
 }
