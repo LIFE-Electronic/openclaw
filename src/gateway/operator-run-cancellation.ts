@@ -21,6 +21,7 @@ import {
   retainChatAbortSessionSnapshot,
   type ChatAbortSessionSnapshot,
 } from "./server-methods/chat-aborted-partial.js";
+import { resolveAuthenticatedPersonalGatewayProfileId } from "./server-methods/gateway-personal-caller.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import { formatForLog } from "./ws-log.js";
 
@@ -48,6 +49,16 @@ export async function retainGatewayOperatorRun(
     // Every child owns its accepted work beyond the requester's recovery turn.
     independentContinuation: params.spawnedBy ? true : undefined,
   });
+  if (
+    captured &&
+    params.entry &&
+    isRpcSourceRegistered(params.entry) &&
+    resolveAuthenticatedPersonalGatewayProfileId(params.client) === captured.authority.profileId
+  ) {
+    // Retain the original person on this source across live queue handoffs. Synthetic
+    // recovery may use a current session owner, which does not establish initiation.
+    params.entry.adapter.initiatingPersonalOperator = captured.authority;
+  }
   const releaseSource =
     captured?.release ?? retainGatewayDeviceRevocation(params.hasCurrentClientAuthority);
   const signal = captured?.authority.signal;
