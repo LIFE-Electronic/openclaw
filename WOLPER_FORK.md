@@ -39,6 +39,34 @@ ID. Gateway method order stays stable, and Control UI/macOS protocol models
 recognize BlueHouse destinations. Core runtime and Control UI tests cover these
 fork integration fixes; native macOS tests require a macOS runner.
 
+## Fork CI policy
+
+Automatic CI retains backend tests, types, lint, builds, runtime contracts,
+secret detection, workflow security checks, and the production dependency audit.
+CodeQL, CodeQL Critical Quality, and OpenGrep use GitHub-hosted Ubuntu runners
+in forks because upstream's Blacksmith runners are unavailable here.
+
+In `LIFE-Electronic/openclaw`, automatic CI skips upstream docs publishing checks.
+The root npm shrinkwrap remains checked; plugin shrinkwrap checks run when their
+dependency inputs change. Lockfile or workspace policy changes still select all
+affected packages. Manual CI retains the full docs and shrinkwrap checks.
+Dependency audit findings remain failures and can still produce notifications.
+
+These workflows are disabled through the fork's GitHub Actions settings:
+
+- `auto-response.yml`, `labeler.yml`, and `clawsweeper-dispatch.yml`: upstream
+  administration that depends on upstream GitHub Apps.
+- `docs-agent.yml`: upstream docs automation.
+- `ci-build-artifacts-testbox.yml` and `ci-check-testbox.yml`: duplicate checks
+  requiring unavailable Blacksmith runners. The regular CI build and check jobs
+  stay enabled.
+
+These are repository settings, independent of the branch. To reproduce a setting
+or explicitly restore a workflow after configuring its infrastructure, use
+`gh workflow disable <file> --repo LIFE-Electronic/openclaw` or the matching
+`gh workflow enable` command. Disabling a workflow does not cancel an already
+queued run; cancel that specific run separately.
+
 ## Build and activate a candidate
 
 Use Wolper's `build-image.sh` with `OPENCLAW_SOURCE_MODE=fork`,
