@@ -456,7 +456,7 @@ async function runRevision(revision: number, count = workspaces, timed = false) 
       entries: result.snapshot.entries.length,
       configuredEntries: configuredEntries.length,
       runtimeModels: [...result.runtimeModels.values()].reduce(
-        (count, models) => count + models.length,
+        (total, models) => total + models.length,
         0,
       ),
       hash: createHash("sha256").update(JSON.stringify(result.snapshot)).digest("hex"),
