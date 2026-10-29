@@ -51,7 +51,7 @@ describe("backup commands", () => {
     "escapes terminal controls in archive creation output without changing paths",
     async () => {
       await mockStateOnlyBackupPlan(stateDir);
-      const output = path.join(tempHome.home, "café\u001b[31m\nforged\tend\rrow\u0007.tar.gz");
+      const output = path.join(tempHome.home, "café\u001b[31m\nforged\tend\rrow\u0007.tar.gz ");
       const runtime = createTestRuntime();
       const result = await create({ output, includeWorkspace: false }, runtime);
       const report = vi.mocked(runtime.log).mock.calls.flat().join("\n");
