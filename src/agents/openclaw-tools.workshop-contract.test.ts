@@ -146,7 +146,7 @@ describe("Workshop through the OpenClaw tool set", () => {
       "No learned skills yet. Add one with action=create.",
     );
     await expect(tool.execute("bad", { action: "invent", name: "deploy" })).rejects.toThrow(
-      'Unknown action "invent". Use list, view, create, patch, write_file, remove_file, archive, or restore.',
+      'Unknown action "invent". Use list, view, create, patch, write_file, remove_file, archive, restore, draft, or discard.',
     );
     await seed("other");
     const created = text(
@@ -297,6 +297,67 @@ describe("Workshop through the OpenClaw tool set", () => {
         skillFile: await fs.realpath(path.join(root, "deploy", "SKILL.md")),
       }),
     ]);
+  });
+
+  it("T8: a propose-mode review saves drafts only; the foreground lists, views, and discards them", async () => {
+    await seed();
+    config = {
+      ...config,
+      skills: { ...config.skills, workshop: { autonomous: { mode: "propose" } } },
+    };
+    setRuntimeConfigSnapshot(config);
+    const review = workshop({
+      agentSessionKey: "agent:main:internal-session-effects:review",
+      skillWorkshop: { reviewOf: "agent:main:telegram:direct:42" },
+    });
+    await review.execute("view", { action: "view", name: "deploy" });
+    await expect(
+      review.execute("patch", {
+        action: "patch",
+        name: "deploy",
+        old_text: "deployment",
+        new_text: "release",
+        reason: "correct step",
+      }),
+    ).rejects.toThrow("Learning is in propose mode; save this change with action=draft instead.");
+    const saved = await review.execute("draft", {
+      action: "draft",
+      name: "deploy",
+      content: skill("deploy", "Run the release."),
+      reason: "correct step",
+    });
+    const { draft: draftId } = Value.Parse(Type.Object({ draft: Type.String() }), saved.details);
+    expect(draftId).toMatch(/^deploy-[0-9a-f]{8}$/);
+    expect(text(saved)).toBe(
+      `Saved draft ${draftId} for "deploy". Skills are unchanged; the user reviews drafts with /learn drafts.`,
+    );
+    expect(await fs.readFile(path.join(root, "deploy", "SKILL.md"), "utf8")).toBe(skill("deploy"));
+    expect(await fs.readFile(path.join(root, ".drafts", draftId, "SKILL.md"), "utf8")).toBe(
+      skill("deploy", "Run the release."),
+    );
+    expect((await changes()).changes).toEqual([]);
+    await expect(review.execute("discard", { action: "discard", draft: draftId })).rejects.toThrow(
+      "Background reviews may not discard drafts.",
+    );
+
+    const foreground = workshop();
+    expect(text(await foreground.execute("list", { action: "list" }))).toBe(
+      [
+        "- deploy: Deploy staging builds",
+        "Drafts waiting for review (view with action=view draft=<id>):",
+        `- ${draftId} (deploy): correct step`,
+      ].join("\n"),
+    );
+    expect(text(await foreground.execute("view", { action: "view", draft: draftId }))).toBe(
+      `Draft ${draftId} for skill "deploy" (correct step):\n\n${skill("deploy", "Run the release.")}`,
+    );
+    expect(text(await foreground.execute("discard", { action: "discard", draft: draftId }))).toBe(
+      `Discarded draft ${draftId}.`,
+    );
+    await expect(fs.stat(path.join(root, ".drafts", draftId))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await fs.readFile(path.join(root, "deploy", "SKILL.md"), "utf8")).toBe(skill("deploy"));
   });
 
   it.each([false, true])("T7: abort%s refuses file and feed effects", async (duringAwait) => {

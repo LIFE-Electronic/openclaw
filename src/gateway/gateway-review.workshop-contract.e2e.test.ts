@@ -130,6 +130,7 @@ async function withReview(
     failAt?: number;
     channel?: "telegram" | "slack";
     deliveryFailure?: boolean;
+    mode?: "auto" | "propose";
   } = {},
 ) {
   const state = await createOpenClawTestState({
@@ -256,7 +257,12 @@ async function withReview(
           tools: { profile: "coding" },
           skills: {
             load: { watch: false },
-            workshop: { autonomous: { mode: "auto", channelNotices: Boolean(options.channel) } },
+            workshop: {
+              autonomous: {
+                mode: options.mode ?? "auto",
+                channelNotices: Boolean(options.channel),
+              },
+            },
           },
         } satisfies OpenClawConfig;
         const active = await startGatewayWithClient({
@@ -761,6 +767,61 @@ describe("Workshop review through the real Gateway", () => {
           );
         },
         { channel: "telegram", deliveryFailure },
+      );
+    },
+  );
+  it(
+    "V5: a propose-mode review saves a draft, changes no skill, and announces nothing",
+    { timeout: 150_000 },
+    async () => {
+      const drafted = originalSkill.replace("Check health.", "Check the generation.");
+      await withReview(
+        [
+          { action: "view", name: "contract-release" },
+          {
+            action: "patch",
+            name: "contract-release",
+            old_text: "Check health.",
+            new_text: "Check the generation.",
+            reason: "check the generation",
+          },
+          {
+            action: "draft",
+            name: "contract-release",
+            content: drafted,
+            reason: "check the generation",
+          },
+        ],
+        async (fixture) => {
+          fixture.release.resolve();
+          await fixture.foreground();
+          // view, refused patch, draft, then the closing reply.
+          await expect
+            .poll(() => fixture.reviewRequests.length, { timeout: 80_000, interval: 100 })
+            .toBe(4);
+          const draftsDir = path.join(path.dirname(path.dirname(fixture.skillFile)), ".drafts");
+          const [draftId, ...others] = await fs.readdir(draftsDir);
+          expect(others).toEqual([]);
+          expect(draftId).toMatch(/^contract-release-[0-9a-f]{8}$/);
+          expect(await fs.readFile(path.join(draftsDir, draftId!, "SKILL.md"), "utf8")).toBe(
+            drafted,
+          );
+          expect(await fs.readFile(fixture.skillFile, "utf8")).toBe(originalSkill);
+          expect(await fixture.changes()).toEqual([]);
+          expect(JSON.stringify(await fixture.history())).not.toContain("💾 Learned:");
+          expect(
+            await fixture.gateway.client.request<{ drafts: Array<{ id: string }> }>(
+              "skills.workshop.list",
+              { agentId: "main" },
+            ),
+          ).toMatchObject({
+            mode: "propose",
+            drafts: [
+              { id: draftId, skillName: "contract-release", summary: "check the generation" },
+            ],
+          });
+        },
+        { mode: "propose" },
       );
     },
   );

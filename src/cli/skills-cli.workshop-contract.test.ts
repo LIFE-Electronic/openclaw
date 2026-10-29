@@ -394,7 +394,7 @@ describe("openclaw skills workshop persisted CLI contract", () => {
           });
         } else {
           expect(archived).toBe(
-            "Archived release-notes. Undo with: openclaw skills workshop restore release-notes\n",
+            "Archived release-notes. Undo with: openclaw skills workshop restore release-notes --agent writer\n",
           );
         }
         const live = path.join(state.agentDir("writer"), "workshop-skills", "release-notes");
@@ -473,7 +473,7 @@ describe("openclaw skills workshop persisted CLI contract", () => {
             });
           } else {
             expect(archived).toBe(
-              "Archived release-notes. Undo with: openclaw skills workshop restore release-notes\n",
+              "Archived release-notes. Undo with: openclaw skills workshop restore release-notes --agent writer\n",
             );
           }
           await expect(fs.stat(live)).rejects.toMatchObject({ code: "ENOENT" });

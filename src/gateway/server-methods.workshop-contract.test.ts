@@ -159,6 +159,102 @@ describe("Workshop through Gateway authorization and dispatch", () => {
     });
   });
 
+  it("lists and reads on-disk drafts for operator.read, and applies or discards them for admin only", async () => {
+    // Drafts are plain directories under .drafts/; Doctor writes this same shape.
+    const drafted = skill.replace(
+      "Keep the signed receipt.",
+      "Keep and attach the signed receipt.",
+    );
+    for (const [id, reason] of [
+      ["deploy-notes-1a2b3c4d", "attach the receipt"],
+      ["deploy-notes-5e6f7a8b", "unused idea"],
+    ]) {
+      await fs.mkdir(path.join(root, ".drafts", id), { recursive: true });
+      await fs.writeFile(path.join(root, ".drafts", id, ".reason"), `${reason}\n`);
+      await fs.writeFile(path.join(root, ".drafts", id, "SKILL.md"), drafted);
+    }
+    const readScopes = ["operator.read"];
+    const listed = await dispatch("skills.workshop.list", { agentId: "ops" }, readScopes);
+    expect(listed).toMatchObject({ ok: true });
+    expect(
+      (listed.payload as { drafts: Array<{ id: string }> }).drafts.toSorted((a, b) =>
+        a.id.localeCompare(b.id),
+      ),
+    ).toEqual([
+      {
+        id: "deploy-notes-1a2b3c4d",
+        skillName: "deploy-notes",
+        summary: "attach the receipt",
+        createdAtMs: expect.any(Number),
+      },
+      {
+        id: "deploy-notes-5e6f7a8b",
+        skillName: "deploy-notes",
+        summary: "unused idea",
+        createdAtMs: expect.any(Number),
+      },
+    ]);
+    const first = { agentId: "ops", name: "deploy-notes", draftId: "deploy-notes-1a2b3c4d" };
+    expect(await dispatch("skills.workshop.read", first, readScopes)).toMatchObject({
+      ok: true,
+      payload: {
+        name: "deploy-notes",
+        filePath: "SKILL.md",
+        content: drafted,
+        files: ["SKILL.md"],
+      },
+    });
+    for (const method of ["skills.workshop.applyDraft", "skills.workshop.discardDraft"]) {
+      expect(await dispatch(method, first, readScopes)).toMatchObject({
+        ok: false,
+        error: { code: "FORBIDDEN", message: "missing scope: operator.admin" },
+      });
+    }
+    expect(
+      await dispatch("skills.workshop.applyDraft", { ...first, name: "other-skill" }),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message:
+          'Draft "deploy-notes-1a2b3c4d" is for skill "deploy-notes", not "other-skill". Reload the drafts.',
+      },
+    });
+
+    expect(await dispatch("skills.workshop.applyDraft", first)).toMatchObject({
+      ok: true,
+      payload: {
+        changes: [
+          {
+            skillName: "deploy-notes",
+            action: "write_file",
+            actor: "user",
+            summary: "attach the receipt",
+            versionId: expect.any(String),
+          },
+        ],
+      },
+    });
+    expect(await fs.readFile(path.join(root, "deploy-notes", "SKILL.md"), "utf8")).toBe(drafted);
+    await expect(fs.stat(path.join(root, ".drafts", first.draftId))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    const second = { ...first, draftId: "deploy-notes-5e6f7a8b" };
+    expect(await dispatch("skills.workshop.discardDraft", second)).toEqual({
+      ok: true,
+      payload: { changes: [] },
+      error: undefined,
+    });
+    await expect(fs.stat(path.join(root, ".drafts", second.draftId))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await dispatch("skills.workshop.list", { agentId: "ops" })).toMatchObject({
+      ok: true,
+      payload: { drafts: [] },
+    });
+  });
+
   it("allows admin to undo a persisted review, once", async () => {
     openOpenClawStateDatabase();
     await closeStateDatabaseForTest();

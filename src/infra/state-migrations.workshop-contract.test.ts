@@ -19,13 +19,14 @@ afterEach(async () => {
 });
 
 it.each([false, true])(
-  "D1: Doctor exports retired drafts and preserves failed exports (blocked=%s)",
+  "D1: Doctor exports retired proposals to the drafts inbox and preserves failed exports (blocked=%s)",
   async (blocked) => {
     const state = await createOpenClawTestState({ prefix: "workshop-doctor-contract-" });
     const agentDir = state.agentDir("ops");
     const cfg = { agents: { entries: { ops: { agentDir } } } };
     const proposalRoot = state.statePath("skill-workshop", "proposals");
-    const archive = path.join(agentDir, "workshop-skills", ".archive", ".retired-proposals");
+    const drafts = path.join(agentDir, "workshop-skills", ".drafts");
+    const earlierExport = path.join(agentDir, "workshop-skills", ".archive", ".retired-proposals");
     const skillDir = path.join(state.workspaceDir, "skills", "deploy");
     const skillFile = path.join(skillDir, "SKILL.md");
     const databasePath = openOpenClawStateDatabase({ env: state.env }).path;
@@ -82,8 +83,11 @@ it.each([false, true])(
       await write(path.join(proposalRoot, "legacy-procedure-1", "PROPOSAL.md"), "# Legacy\n");
       await write(skillFile, "# Before\n");
       await write(path.join(skillDir, "references", "notes.md"), "new notes\n");
+      // An earlier Doctor exported drafts under the archive; they move into the inbox too.
       if (blocked) {
-        await write(archive, "operator-owned blocker\n");
+        await write(drafts, "operator-owned blocker\n");
+      } else {
+        await write(path.join(earlierExport, "earlier-procedure-1", "SKILL.md"), "# Earlier\n");
       }
       const run = () =>
         autoMigrateLegacyState({
@@ -116,15 +120,17 @@ it.each([false, true])(
           ["pending", "# Pending\n"],
           ["quarantined", "# Quarantined\n"],
           ["legacy", "# Legacy\n"],
+          ["earlier", "# Earlier\n"],
         ]) {
           expect(
-            await fs.readFile(path.join(archive, `${name}-procedure-1`, "SKILL.md"), "utf8"),
+            await fs.readFile(path.join(drafts, `${name}-procedure-1`, "SKILL.md"), "utf8"),
           ).toBe(content);
         }
         expect(await fs.readFile(path.join(skillDir, "references", "notes.md"), "utf8")).toBe(
           "old notes\n",
         );
         await expect(fs.stat(proposalRoot)).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(fs.stat(earlierExport)).rejects.toMatchObject({ code: "ENOENT" });
         expect(result.changes).toContain("Retired the Skill Workshop proposal tables.");
         expect((await run()).changes).not.toContain("Retired the Skill Workshop proposal tables.");
         await closeStateDatabaseForTest();
