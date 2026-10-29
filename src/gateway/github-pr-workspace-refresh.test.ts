@@ -6,7 +6,10 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js";
 import { linkCanonicalUserProfileEmail } from "../state/user-profile-writes.js";
-import { installGitHubPublicationTestHarness } from "./github-publication.test-support.js";
+import {
+  commandResult,
+  installGitHubPublicationTestHarness,
+} from "./github-publication.test-support.js";
 
 describe("imported PR source refresh", () => {
   installGitHubPublicationTestHarness({
@@ -118,6 +121,125 @@ describe("imported PR source refresh", () => {
       expect(f.writes).toEqual([]);
     },
   );
+  // GitHub serves the session's earlier publication as a PR authored by its managed publisher.
+  async function ownBotPublishedPr() {
+    const f = await fixture({ priorPublication: true });
+    const published = f.priorPublication;
+    if (published?.status !== "published") {
+      throw new Error("The session did not publish its PR");
+    }
+    const upstreamGit = (...args: string[]) => f.local!.git("-C", f.upstream, ...args);
+    await f.git("push", f.upstream, `${published.headCommit}:refs/heads/${published.branch}`);
+    f.pr.user = { id: 42, login: "roboclaw-bot" };
+    Object.assign(f.pr, {
+      number: Number(published.url.split("/").at(-1)),
+      html_url: published.url,
+    });
+    f.pr.head.ref = f.branch.name = published.branch;
+    f.pr.head.sha = f.branch.commit.sha = published.headCommit;
+    return { f, published, upstreamGit };
+  }
+  it("still refuses a bot-authored PR this session did not publish", async () => {
+    const f = await fixture({ priorPublication: true });
+    f.pr.user = { id: 42, login: "roboclaw-bot" };
+    await expect(f.invoke()).rejects.toThrow("not authored by a GitHub account linked to you");
+    expect(f.readSession().worktree?.githubPullRequest).toBeUndefined();
+  });
+  it("prepares its own unchanged bot-published PR after the base advances", async () => {
+    const { f, published, upstreamGit } = await ownBotPublishedPr();
+    await fs.writeFile(path.join(f.upstream, "base-later.txt"), "newer base\n");
+    await upstreamGit("add", "base-later.txt");
+    await upstreamGit("commit", "-m", "Newer base");
+    f.pr.base.sha = await upstreamGit("rev-parse", "HEAD");
+    expect(await f.invoke()).toMatchObject({
+      status: "prepared",
+      headCommit: published.headCommit,
+      headChanged: false,
+    });
+    expect(f.readSession().worktree?.githubPullRequest).toMatchObject({
+      url: published.url,
+      preparedHeadCommit: published.headCommit,
+    });
+    expect(f.writes).toEqual([]);
+  });
+  it("merges another writer's commits into this session's own bot-published PR", async () => {
+    const { f, published, upstreamGit } = await ownBotPublishedPr();
+    // A maintainer appends to the PR branch outside this session.
+    await upstreamGit("checkout", published.branch);
+    await fs.writeFile(path.join(f.upstream, "maintainer.txt"), "maintainer follow-up\n");
+    await upstreamGit("add", "maintainer.txt");
+    await upstreamGit("commit", "-m", "Maintainer follow-up");
+    const advanced = await upstreamGit("rev-parse", "HEAD");
+    f.pr.head.sha = advanced;
+    f.branch.commit.sha = advanced;
+    await fs.writeFile(path.join(f.projection, "artifact.txt"), "unpublished fix\n");
+
+    expect(await f.invoke()).toMatchObject({ status: "prepared", headCommit: advanced });
+    expect(await fs.readFile(path.join(f.projection, "maintainer.txt"), "utf8")).toBe(
+      "maintainer follow-up\n",
+    );
+    expect(await fs.readFile(path.join(f.projection, "artifact.txt"), "utf8")).toBe(
+      "unpublished fix\n",
+    );
+    expect(await f.git("merge-base", "--is-ancestor", advanced, "HEAD")).toBe("");
+    expect(f.writes).toEqual([]);
+
+    // The saved fix now publishes onto the same PR as a fast-forward of the maintainer's commit.
+    await upstreamGit("checkout", "main");
+    const pushes: string[] = [];
+    const transport = mocks.runCommand.getMockImplementation()!;
+    const json = (value: unknown) => commandResult(JSON.stringify(value));
+    mocks.runCommand.mockImplementation(async (argv: string[], options) => {
+      const endpoint = argv[0] === "gh" ? argv.find((arg) => arg.startsWith("repos/")) : undefined;
+      if (argv.includes("push")) {
+        const [commit, ref] = argv.at(-1)!.split(":");
+        expect(ref).toBe(`refs/heads/${published.branch}`);
+        expect(argv).toContain(`--force-with-lease=${ref}:${f.pr.head.sha}`);
+        await f.git("push", f.upstream, `${commit}:${ref}`);
+        pushes.push(commit!);
+        f.pr.head.sha = f.branch.commit.sha = commit!;
+        return commandResult();
+      }
+      if (argv.includes("ls-remote")) {
+        return commandResult(`${f.pr.head.sha}\trefs/heads/${published.branch}\n`);
+      }
+      if (endpoint?.includes("/git/ref/")) {
+        const ref = `refs/${endpoint.split("/git/ref/")[1]}`;
+        return json({ ref, sha: await upstreamGit("rev-parse", ref) });
+      }
+      if (endpoint?.includes("/git/commits/")) {
+        const sha = endpoint.split("/").at(-1)!;
+        const parents = await upstreamGit("show", "-s", "--format=%P", sha);
+        return json({
+          sha,
+          tree: { sha: await upstreamGit("rev-parse", `${sha}^{tree}`) },
+          parents: parents.split(" ").map((parent) => ({ sha: parent })),
+          message: await upstreamGit("show", "-s", "--format=%B", sha),
+        });
+      }
+      if (endpoint?.endsWith(`/pulls/${f.pr.number}`) && argv.includes("--jq")) {
+        return json({
+          url: f.pr.html_url,
+          userId: f.pr.user.id,
+          state: f.pr.state,
+          body: "",
+          headSha: f.pr.head.sha,
+          headRef: f.pr.head.ref,
+          baseRef: f.pr.base.ref,
+          headRepository: f.pr.head.repo.full_name,
+          headRepositoryId: f.pr.head.repo.id,
+          baseRepository: f.pr.base.repo.full_name,
+          baseRepositoryId: f.pr.base.repo.id,
+        });
+      }
+      return await transport(argv, options);
+    });
+    const continued = await f.coordinator.requestForSessionV2(f.request("continue-pr", f.guest));
+    expect(continued).toMatchObject({ status: "published", url: published.url });
+    expect(pushes).toHaveLength(1);
+    expect(await upstreamGit("merge-base", "--is-ancestor", advanced, pushes[0]!)).toBe("");
+    expect(await upstreamGit("show", `${pushes[0]}:artifact.txt`)).toBe("unpublished fix");
+  });
   it("preserves staged-only guest bytes and succeeds after the guest commits them", async () => {
     const f = await fixture();
     await f.invoke();
