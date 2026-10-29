@@ -105,9 +105,8 @@ it.each(["sqlite", "postgres"] as const)(
       stagingRoot: path.join(stateDir, "staging"),
       preserveSourceArtifacts: true,
     };
-    await expect(
-      readUpdateStoreSchemaVersion(file, options).catch(rethrowImportCause),
-    ).resolves.toEqual({
+    const version = await readUpdateStoreSchemaVersion(file, options).catch(rethrowImportCause);
+    expect(version).toEqual({
       userVersion: engine === "postgres" ? 9 : 0,
     });
     expect(inspect).toHaveBeenCalledWith(file, options.stagingRoot, undefined, true);
