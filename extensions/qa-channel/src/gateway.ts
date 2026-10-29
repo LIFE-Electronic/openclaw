@@ -32,7 +32,7 @@ export async function startQaGatewayAccount(
   let inboundError: Error | undefined;
   let queuedInbound = Promise.resolve();
   let queuedAcknowledgements = Promise.resolve();
-  const controlTasks = new Set<Promise<void>>();
+  const inboundTasks = new Set<Promise<void>>();
   type PendingEvent = {
     cursor: number;
     state: "pending" | "adopted" | "abandoned";
@@ -78,6 +78,7 @@ export async function startQaGatewayAccount(
   const handleMessage = async (
     message: Parameters<typeof handleQaInbound>[0]["message"],
     event: PendingEvent,
+    onFollowupQueued?: () => void,
   ) => {
     await handleQaInbound({
       channelId,
@@ -87,6 +88,7 @@ export async function startQaGatewayAccount(
       message,
       buildContext,
       ...(channelRuntime ? { channelRuntime } : {}),
+      onFollowupQueued,
       // Keep QA collect batching; core awaits adoption for every collected source.
       turnAdoptionLifecycle: {
         onAdopted: async () => {
@@ -115,14 +117,16 @@ export async function startQaGatewayAccount(
       await flushAcknowledgements();
     }
   };
-  const dispatchControl = (
+  const startMessage = (
     message: Parameters<typeof handleQaInbound>[0]["message"],
     event: PendingEvent,
+    onFollowupQueued?: () => void,
   ) => {
-    const task = handleMessage(message, event)
+    const task = handleMessage(message, event, onFollowupQueued)
       .catch(captureInboundError)
-      .finally(() => controlTasks.delete(task));
-    controlTasks.add(task);
+      .finally(() => inboundTasks.delete(task));
+    inboundTasks.add(task);
+    return task;
   };
   const enqueueInbound = (
     message: Parameters<typeof handleQaInbound>[0]["message"],
@@ -133,7 +137,11 @@ export async function startQaGatewayAccount(
         if (inboundError) {
           return;
         }
-        await handleMessage(message, event);
+        const followupQueued = Promise.withResolvers<void>();
+        const task = startMessage(message, event, followupQueued.resolve);
+        // Confirmed followups release intake for collect batching while their
+        // full tasks retain delivery, completion receipts and shutdown custody.
+        await Promise.race([followupQueued.promise, task]);
       })
       .catch(captureInboundError);
   };
@@ -164,7 +172,7 @@ export async function startQaGatewayAccount(
         }
         const acknowledgement: PendingEvent = { cursor: event.cursor, state: "pending" };
         if (event.message.nativeCommand) {
-          dispatchControl(event.message, acknowledgement);
+          void startMessage(event.message, acknowledgement);
         } else {
           enqueueInbound(event.message, acknowledgement);
         }
@@ -186,7 +194,9 @@ export async function startQaGatewayAccount(
     }
   } finally {
     try {
-      await Promise.all([queuedInbound, ...controlTasks]);
+      // Intake can start more full tasks while draining. Snapshot only afterward.
+      await queuedInbound;
+      await Promise.all(inboundTasks);
       // Join started writes and flush completed handlers without the cancelled
       // poll signal. Only successful handlers publish exact completion receipts.
       await flushAcknowledgements();

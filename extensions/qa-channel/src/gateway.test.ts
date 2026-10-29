@@ -150,6 +150,46 @@ describe("qa-channel gateway", () => {
     ]);
   });
 
+  it("joins followup tasks created while ordered intake drains after abort", async () => {
+    const controller = new AbortController();
+    const baseUrl = await serveMessages("first", "second");
+    const firstStarted = Promise.withResolvers<void>();
+    const first = Promise.withResolvers<void>();
+    const secondStarted = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    vi.mocked(handleQaInbound).mockImplementation(async ({ message, onFollowupQueued }) => {
+      if (message.text === "first") {
+        firstStarted.resolve();
+        await first.promise;
+      } else {
+        onFollowupQueued?.();
+        secondStarted.resolve();
+        await second.promise;
+      }
+    });
+    const gateway = startGateway(baseUrl, { abortSignal: controller.signal });
+    try {
+      await firstStarted.promise;
+      controller.abort();
+      first.resolve();
+      await secondStarted.promise;
+      expect(
+        await Promise.race([
+          gateway.then(() => "stopped"),
+          new Promise((resolve) => {
+            setImmediate(() => resolve("waiting"));
+          }),
+        ]),
+      ).toBe("waiting");
+    } finally {
+      first.resolve();
+      second.resolve();
+      controller.abort();
+      await gateway;
+    }
+    expect(handledTexts()).toEqual(["first", "second"]);
+  });
+
   it("publishes ready after the first successful poll", async () => {
     const controller = new AbortController();
     const baseUrl = await json(() => ({

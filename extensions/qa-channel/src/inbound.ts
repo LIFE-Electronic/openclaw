@@ -130,6 +130,7 @@ export async function handleQaInbound(params: {
   buildContext?: typeof buildChannelInboundEventContext;
   channelRuntime?: PluginRuntime["channel"];
   turnAdoptionLifecycle?: ChannelInboundTurnPlan["turnAdoptionLifecycle"];
+  onFollowupQueued?: () => void;
 }) {
   const channelRuntime = params.channelRuntime ?? getQaChannelRuntime().channel;
   const inbound = params.message;
@@ -497,12 +498,13 @@ export async function handleQaInbound(params: {
     const result = await dispatch;
     // Followup admission returns before delivery. Keep preview and completion
     // ownership until the queue reports its terminal delivery, including retries.
-    if (
-      result.dispatched &&
-      result.dispatchResult.deferredToActiveRun === "followup" &&
-      !(await queuedDelivery.promise)
-    ) {
-      throw new Error("QA queued reply did not complete delivery");
+    if (result.dispatched && result.dispatchResult.deferredToActiveRun === "followup") {
+      // Intake may continue only after core confirms followup admission, not
+      // its earlier onDeferred notification. Delivery still owns this handler.
+      params.onFollowupQueued?.();
+      if (!(await queuedDelivery.promise)) {
+        throw new Error("QA queued reply did not complete delivery");
+      }
     }
   } finally {
     await clearPreview();
