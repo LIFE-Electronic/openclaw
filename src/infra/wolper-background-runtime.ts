@@ -49,8 +49,15 @@ export async function publishBackgroundResult(params: {
   });
 }
 
-/** Mirror isolated output into the selected native conversation exactly once. */
+/** Main is mandatory; an explicitly selected secondary conversation remains visible too. */
 export async function materializeBackgroundResult(result: BackgroundResult): Promise<void> {
+  for (const destinationSessionKey of new Set(["agent:main:main", result.destinationSessionKey])) {
+    await materializeAtDestination({ ...result, destinationSessionKey });
+  }
+}
+
+/** Mirror isolated output into each native conversation exactly once. */
+async function materializeAtDestination(result: BackgroundResult): Promise<void> {
   if (result.sourceSessionKey === result.destinationSessionKey || result.outcome === "silent") {
     return;
   }

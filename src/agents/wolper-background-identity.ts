@@ -34,10 +34,15 @@ export function preserveBackgroundTranscriptIdentity<T>(original: T, redacted: T
   // Timestamp:UUID looks like a bot token to the generic content scrubber.
   // Restoring only these protocol fields keeps append/scan retries idempotent
   // and companion/final execution correlation intact, without revealing text.
+  const copyId = native.copyId;
+  const copyIdentity =
+    typeof copyId === "string" &&
+    new RegExp(`^${uuid}$`, "i").test(copyId) &&
+    before.idempotencyKey === `wolper-copy:${copyId}`;
   return {
     ...after,
-    __openclaw: { ...record(after["__openclaw"]), runId },
-    ...(before.idempotencyKey === `wolper-background:${runId}`
+    __openclaw: { ...record(after["__openclaw"]), runId, ...(copyIdentity ? { copyId } : {}) },
+    ...(before.idempotencyKey === `wolper-background:${runId}` || copyIdentity
       ? { idempotencyKey: before.idempotencyKey }
       : {}),
   } as T;

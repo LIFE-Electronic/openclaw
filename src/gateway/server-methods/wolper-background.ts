@@ -7,9 +7,43 @@ import {
   pendingBackgroundResults,
   type BackgroundReceipt,
 } from "../../infra/wolper-background.js";
+import { copyIntoSession } from "../../infra/wolper-message-copy-runtime.js";
+import { copyRequestSchema, CopyConflictError } from "../../infra/wolper-message-copy.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 export const wolperBackgroundHandlers: GatewayRequestHandlers = {
+  "wolper.messages.copy": async ({ params, client, respond, context }) => {
+    const parsed = copyRequestSchema.safeParse(params);
+    if (client?.connect.client.mode !== "backend" || !parsed.success) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "A valid backend copy request is required"),
+      );
+      return;
+    }
+    try {
+      const receipt = await copyIntoSession(parsed.data);
+      if (receipt.status === "committed") {
+        // Publish only after both the transcript and durable receipt are stored.
+        context.broadcast("wolper.message.copied", receipt);
+      }
+      context.logGateway.info("Native background copy handled", {
+        copyId: parsed.data.copyId,
+        status: receipt.status,
+      });
+      respond(true, receipt);
+    } catch (error) {
+      context.logGateway.error("Native background copy failed", { copyId: parsed.data.copyId });
+      respond(
+        false,
+        undefined,
+        error instanceof CopyConflictError
+          ? errorShape(ErrorCodes.INVALID_REQUEST, "Native copy conflict")
+          : errorShape(ErrorCodes.UNAVAILABLE, "Native copy could not be committed"),
+      );
+    }
+  },
   "wolper.deliveries.status": async ({ params, respond }) => {
     if (
       typeof params.executionId !== "string" ||

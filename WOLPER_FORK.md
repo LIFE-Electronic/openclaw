@@ -8,10 +8,63 @@ checksums and source commit. The fork applies their behavior directly to source.
 
 The fixes cover copied-media receipts, Webchat completion routing, prompt-lock
 disposal, heartbeat identity, durable BlueHouse background delivery, transcript
-retry identity, cron validation, and cron job-name snapshots.
+retry identity, cron validation, cron job-name snapshots, and native session
+copies for opted-in managed channels.
 `bluehouse` cron/heartbeat delivery and `wolper.deliveries.pending`, `.ack`, and
 `.status` require the matching Wolper backend. The package version stays
 `2026.5.28`; use the full Git commit to identify a fork build.
+
+## Background channel copies
+
+Actionable results handed to Wolper always include BlueHouse Main
+(`agent:main:main`). Wolper can additionally select an opted-in iMessage or
+WhatsApp binding for that agent. Consent, channel linking, provider transport,
+and transport receipts belong to the Wolper backend. This fork provides the
+channel-independent native session append; the change is source code in this
+checkout and is part of [OpenClaw PR #1](https://github.com/LIFE-Electronic/openclaw/pull/1),
+without a new patch artifact.
+
+`wolper.messages.copy` requires an administrator-scoped backend client. Its
+request carries `copyId` (UUID), original `executionId`,
+`destinationSessionKey`, cron/heartbeat `origin`, and an assistant `message`.
+The method does not dispatch a model run or send to a channel. It uses
+`appendExactAssistantMessageToSessionTranscript` to preserve parent links,
+normal content redaction, and the next model turn's conversation context.
+
+The result is either `{status: "busy", copyId}` or a committed receipt containing
+`copyId`, `executionId`, `destinationSessionKey`, `sessionId`, `messageId`, and
+the actual stored `message`. Only a committed receipt emits
+`wolper.message.copied`, with the same payload as the RPC response. Wolper uses
+that content for its destination row before making transport parts eligible.
+Native confirmation does not claim provider or device delivery.
+
+`src/infra/wolper-message-copy.ts` stores request digests, session identities,
+and receipts under `wolper-message-copies/` in the state directory. A per-copy
+lock serializes concurrent retries. The transcript key `wolper-copy:<copyId>`
+recovers an append if receipt publication was interrupted. Reusing an identity
+with different content or a changed destination session is refused. The runtime
+adapter in `src/infra/wolper-message-copy-runtime.ts` checks destination activity
+and session identity before appending; a busy destination defers the copy.
+
+Wolper keeps Main, selection, and provider delivery as distinct durable stages.
+Opt-in defaults false, resets on relink/switch, and covers both cron and heartbeat.
+Opt-out cancels unsent work; an in-progress append or provider send cannot be
+recalled. Retained media points at already captured bytes and receives
+destination-scoped URLs in Wolper. The backend rejects unrequested or retired
+copies and does not fan out confirmation echoes. An older runtime lacking this
+method leaves the copy waiting for an upgrade and cannot trigger a direct-send
+fallback. See the [frontend/API contract](https://github.com/LIFE-Electronic/wolper/blob/feat/background-channel-copies/tech_notes/background-notifications.md).
+
+Native tests are `src/infra/wolper-message-copy{,-runtime}.test.ts`,
+`src/gateway/server-methods/wolper-message-copy.test.ts`, and
+`src/agents/wolper-background-identity.test.ts`. They cover concurrent/restarted
+retries, interrupted receipts, real transcript/context state, busy admission,
+identity refusal, and backend-only RPC access. The Wolper
+[PR 110 rollout](https://github.com/LIFE-Electronic/wolper/blob/feat/background-channel-copies/migration-scripts/110/README.md)
+adds installed-copy verification to the guarded fork image workflow. Its
+`scripts/openclaw/background-copy-probe.mjs` exercises installed code in isolated
+temporary state; fresh provisioning and live transport acceptance remain
+separate checks.
 
 ## Verify source changes
 

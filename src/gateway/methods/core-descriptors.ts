@@ -214,6 +214,7 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "wolper.deliveries.pending", scope: "operator.read" },
   { name: "wolper.deliveries.status", scope: "operator.read" },
   { name: "wolper.deliveries.ack", scope: "operator.admin" },
+  { name: "wolper.messages.copy", scope: "operator.admin" },
 ] as const;
 
 const CORE_GATEWAY_METHOD_SPEC_BY_NAME: ReadonlyMap<string, CoreGatewayMethodSpec> = new Map(
