@@ -65,7 +65,7 @@ function toolResponse(
   response: ServerResponse,
   args: Record<string, unknown>,
   id: string,
-  name = "dispatch_action",
+  name: string,
 ) {
   const item = {
     type: "function_call",
@@ -220,11 +220,8 @@ async function withReview(
               }),
             );
           } else if (actions[step]) {
-            toolResponse(
-              response,
-              { id: "skill_workshop", args: actions[step] },
-              `review_${serial}`,
-            );
+            // Background review exposes skill_workshop directly, without Tool Search.
+            toolResponse(response, actions[step], `review_${serial}`, "skill_workshop");
           } else {
             writeOpenAiResponsesText(response, {
               text: "NO_REPLY",
@@ -722,7 +719,8 @@ describe("Workshop review through the real Gateway", () => {
             expect(notices).toHaveLength(1);
             const notice = notices[0];
             assert.isDefined(notice);
-            expect(notice.openclawDeliveryMirror).not.toMatchObject({
+            // The session records its own notice once, with the marker; the send adds no copy.
+            expect(notice.openclawDeliveryMirror).toMatchObject({
               kind: "skill-workshop-change",
             });
           }

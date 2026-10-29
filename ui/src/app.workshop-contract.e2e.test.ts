@@ -160,10 +160,14 @@ const historyMessages = [
   },
 ];
 
-async function openWorkshop(page: Page, operatorScopes = ["operator.admin"]) {
+async function openWorkshop(
+  page: Page,
+  operatorScopes = ["operator.admin"],
+  overrides: Record<string, unknown> = {},
+) {
   const gateway = await installMockGateway(page, {
-    featureMethods,
-    methodResponses,
+    featureMethods: [...new Set([...featureMethods, ...Object.keys(overrides)])],
+    methodResponses: { ...methodResponses, ...overrides },
     operatorScopes,
   });
   await page.goto(`${suite.server.baseUrl}skills/workshop`);
@@ -289,6 +293,69 @@ suite.define(() => {
       await page.getByRole("button", { name: /^Archived/ }).click();
       await page.locator(".sw-row").filter({ hasText: archivedName }).waitFor();
       expect(await page.locator(".sw-row").filter({ hasText: skillName }).count()).toBe(0);
+    });
+  });
+
+  it("reviews waiting drafts as a diff against the live skill and applies or discards them", async () => {
+    await suite.withPage({}, async ({ page }) => {
+      const drafted = (id: string, summary: string) => ({
+        id,
+        skillName,
+        summary,
+        createdAtMs: timestamp,
+      });
+      const gateway = await openWorkshop(page, ["operator.admin"], {
+        "skills.workshop.list": {
+          ...list,
+          mode: "propose",
+          drafts: [
+            drafted("deploy-staging-1a2b3c4d", "Check the rollback first"),
+            drafted("deploy-staging-5e6f7a8b", "Unused idea"),
+          ],
+        },
+        "skills.workshop.read": {
+          cases: [
+            {
+              match: { draftId: "deploy-staging-1a2b3c4d" },
+              response: {
+                name: skillName,
+                filePath: "SKILL.md",
+                files: ["SKILL.md"],
+                content:
+                  "---\nname: deploy-staging\ndescription: Current deployment procedure\n---\n\nCheck the rollback first.",
+              },
+            },
+            ...methodResponses["skills.workshop.read"].cases,
+          ],
+        },
+        "skills.workshop.applyDraft": { changes: [] },
+        "skills.workshop.discardDraft": { changes: [] },
+      });
+      await page.getByRole("button", { name: /^Drafts/ }).click();
+      const first = page.locator(".sw-row").filter({ hasText: "Check the rollback first" });
+      await first.locator(".sw-row__main").click();
+      await expect
+        .poll(() => page.locator(".sw-diff__line--add").allTextContents())
+        .toContainEqual(expect.stringContaining("Check the rollback first."));
+      expect(await page.locator(".sw-diff__key--remove").textContent()).toBe("Live skill");
+      await page.getByRole("button", { name: "Apply", exact: true }).click();
+      expect((await gateway.waitForRequest("skills.workshop.applyDraft")).params).toEqual({
+        agentId: "main",
+        name: skillName,
+        draftId: "deploy-staging-1a2b3c4d",
+      });
+      await page.getByRole("button", { name: /^Drafts/ }).click();
+      await page
+        .locator(".sw-row")
+        .filter({ hasText: "Unused idea" })
+        .locator(".sw-row__main")
+        .click();
+      await page.getByRole("button", { name: "Discard", exact: true }).click();
+      expect((await gateway.waitForRequest("skills.workshop.discardDraft")).params).toEqual({
+        agentId: "main",
+        name: skillName,
+        draftId: "deploy-staging-5e6f7a8b",
+      });
     });
   });
 
