@@ -5,7 +5,7 @@ it("C1: exposes Workshop settings labels, help, defaults and common settings tie
   const { uiHints } = buildConfigSchemaCore();
   expect(uiHints["skills.workshop.autonomous.mode"]).toMatchObject({
     label: "Skill Workshop Autonomous Mode",
-    help: 'Controls background learning: "auto" lets agents save and update Workshop skills after substantial work, and archives learned skills unused for 30 days. Every change is recorded and undoable. "off" disables background learning. Default: "auto".',
+    help: 'Controls background learning: "auto" lets agents save and update Workshop skills after substantial work, and archives learned skills unused for 30 days. Every change is recorded and undoable. "propose" saves what background reviews would change as drafts instead; review them with /learn drafts. "off" disables background learning. Default: "auto".',
     advanced: false,
   });
   expect(uiHints["skills.workshop.autonomous.channelNotices"]).toMatchObject({
