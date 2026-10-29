@@ -162,30 +162,26 @@ describe("imported PR source refresh", () => {
     });
     expect(f.writes).toEqual([]);
   });
-  it("merges another writer's commits into this session's own bot-published PR", async () => {
-    const { f, published, upstreamGit } = await ownBotPublishedPr();
-    // A maintainer appends to the PR branch outside this session.
+  // A maintainer appends to the PR branch outside the session, which holds an unpublished fix.
+  async function advancedOwnBotPublishedPr() {
+    const own = await ownBotPublishedPr();
+    const { f, published, upstreamGit } = own;
     await upstreamGit("checkout", published.branch);
     await fs.writeFile(path.join(f.upstream, "maintainer.txt"), "maintainer follow-up\n");
     await upstreamGit("add", "maintainer.txt");
     await upstreamGit("commit", "-m", "Maintainer follow-up");
     const advanced = await upstreamGit("rev-parse", "HEAD");
-    f.pr.head.sha = advanced;
-    f.branch.commit.sha = advanced;
-    await fs.writeFile(path.join(f.projection, "artifact.txt"), "unpublished fix\n");
-
-    expect(await f.invoke()).toMatchObject({ status: "prepared", headCommit: advanced });
-    expect(await fs.readFile(path.join(f.projection, "maintainer.txt"), "utf8")).toBe(
-      "maintainer follow-up\n",
-    );
-    expect(await fs.readFile(path.join(f.projection, "artifact.txt"), "utf8")).toBe(
-      "unpublished fix\n",
-    );
-    expect(await f.git("merge-base", "--is-ancestor", advanced, "HEAD")).toBe("");
-    expect(f.writes).toEqual([]);
-
-    // The saved fix now publishes onto the same PR as a fast-forward of the maintainer's commit.
     await upstreamGit("checkout", "main");
+    f.pr.head.sha = f.branch.commit.sha = advanced;
+    await fs.writeFile(path.join(f.projection, "artifact.txt"), "unpublished fix\n");
+    return { ...own, advanced };
+  }
+  // Serve publication's GitHub reads and pushes from the upstream repository.
+  function servePublishedRemote({
+    f,
+    published,
+    upstreamGit,
+  }: Awaited<ReturnType<typeof advancedOwnBotPublishedPr>>) {
     const pushes: string[] = [];
     const transport = mocks.runCommand.getMockImplementation()!;
     const json = (value: unknown) => commandResult(JSON.stringify(value));
@@ -234,11 +230,53 @@ describe("imported PR source refresh", () => {
       }
       return await transport(argv, options);
     });
+    return pushes;
+  }
+  it("merges another writer's commits into this session's own bot-published PR", async () => {
+    const own = await advancedOwnBotPublishedPr();
+    const { f, published, upstreamGit, advanced } = own;
+
+    expect(await f.invoke()).toMatchObject({ status: "prepared", headCommit: advanced });
+    expect(await fs.readFile(path.join(f.projection, "maintainer.txt"), "utf8")).toBe(
+      "maintainer follow-up\n",
+    );
+    expect(await fs.readFile(path.join(f.projection, "artifact.txt"), "utf8")).toBe(
+      "unpublished fix\n",
+    );
+    expect(await f.git("merge-base", "--is-ancestor", advanced, "HEAD")).toBe("");
+    expect(f.writes).toEqual([]);
+
+    // The saved fix publishes onto the same PR as a fast-forward of the maintainer's commit.
+    const pushes = servePublishedRemote(own);
     const continued = await f.coordinator.requestForSessionV2(f.request("continue-pr", f.guest));
     expect(continued).toMatchObject({ status: "published", url: published.url });
     expect(pushes).toHaveLength(1);
     expect(await upstreamGit("merge-base", "--is-ancestor", advanced, pushes[0]!)).toBe("");
     expect(await upstreamGit("show", `${pushes[0]}:artifact.txt`)).toBe("unpublished fix");
+  });
+  it("refuses a revoked requester before accepting its own bot PR's newer head", async () => {
+    const { f } = await advancedOwnBotPublishedPr();
+    const head = await f.git("rev-parse", "HEAD");
+    await f.revoke();
+    await expect(f.invoke()).rejects.toThrow();
+    expect(f.readSession().worktree?.githubPullRequest).toBeUndefined();
+    expect(await f.git("rev-parse", "HEAD")).toBe(head);
+    await expect(fs.stat(path.join(f.projection, "maintainer.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(f.writes).toEqual([]);
+  });
+  it("refuses a revoked requester before pushing to its own prepared bot PR", async () => {
+    const own = await advancedOwnBotPublishedPr();
+    const { f, published, upstreamGit, advanced } = own;
+    expect(await f.invoke()).toMatchObject({ status: "prepared", headCommit: advanced });
+    const pushes = servePublishedRemote(own);
+    await f.revoke();
+    await expect(
+      f.coordinator.requestForSessionV2(f.request("continue-pr", f.guest)),
+    ).rejects.toThrow("no longer authorized");
+    expect(pushes).toEqual([]);
+    expect(await upstreamGit("rev-parse", `refs/heads/${published.branch}`)).toBe(advanced);
   });
   it("preserves staged-only guest bytes and succeeds after the guest commits them", async () => {
     const f = await fixture();
