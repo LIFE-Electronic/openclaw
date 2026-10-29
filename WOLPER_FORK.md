@@ -27,9 +27,11 @@ temporary files. Historical Wolper transcript-repair tests remain in Wolper.
 The fork also retains upstream tests; use the commands in `AGENTS.md` for focused
 Vitest, type, lint and build checks.
 
-The imported code has upstream formatting/lint corrections. The media helper is
-kept byte-identical to the copy shipped by the matching Wolper overlay so its
-compiled-runtime probe can verify the source used for the build.
+The imported code has upstream formatting/lint corrections. This fork owns the
+media helper's only implementation. Its Dockerfile ships the committed source at
+`/app/src/agents/generated-media-identity.ts` alongside the compiled runtime so
+installed probes can verify it. Wolper's overlay supplies no helper copy, and
+fork builds do not compare their helper against a second implementation.
 
 Upstream regression coverage also checks direct-delivery replay identity:
 scheduled executions have distinct IDs, and delivery retries reuse the original
