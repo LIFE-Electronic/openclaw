@@ -68,8 +68,20 @@ function runMigrationPlan(
   );
 }
 
-function runPreview(root: string, command = "update") {
-  return runUpdateProcess(root, [command, "--dry-run", "--no-restart", "--timeout", "1", "--json"]);
+function runPreview(root: string, command = "update", json = true, channel?: string) {
+  return runUpdateProcess(
+    root,
+    [
+      command,
+      "--dry-run",
+      "--no-restart",
+      "--timeout",
+      "1",
+      ...(json ? ["--json"] : []),
+      ...(channel ? ["--channel", channel] : []),
+    ],
+    { XDG_CACHE_HOME: path.join(root, "cache"), TMPDIR: path.join(root, "tmp") },
+  );
 }
 
 async function snapshotTree(root: string): Promise<string[]> {
@@ -231,35 +243,56 @@ setLoggerOverride({ file: ${JSON.stringify(path.join(logs, "openclaw.log"))} });
 
   it.each([
     { name: "malformed", command: "update", config: "{ definitely-not-json\n" },
+    { name: "malformed text", command: "update", config: "{ definitely-not-json\n", json: false },
+    {
+      name: "malformed package",
+      command: "update",
+      config: "{ definitely-not-json\n",
+      channel: "stable",
+    },
     {
       name: "migration-pending",
       command: "--update",
       config:
         '{ "heartbeat": { "model": "anthropic/claude-3-5-haiku-20241022", "every": "30m" } }\n',
     },
-  ])("keeps $name config and state immutable during preview", async ({ name, command, config }) => {
-    const { root, stateDir } = await createStateFixture(`openclaw-update-${name}-`, config);
-    if (command === "--update") {
-      const legacyStore = path.join(stateDir, "tasks", "runs.sqlite");
-      await writeFixture(`${legacyStore}.migrated`, "legacy migration marker\n");
-      await writeFixture(`${legacyStore}-wal`, "legacy WAL marker\n");
-    } else {
-      openOpenClawStateDatabase({ env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } });
-      await closeOpenClawStateDatabaseAsync();
-    }
-    const treeBefore = await snapshotTree(root);
-    const result = await runPreview(root, command);
-    expect(result.code, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      runId: expect.any(String),
-      dryRun: true,
-      ...(name === "malformed" && {
-        notes: expect.arrayContaining([expect.stringContaining("Would refuse update:")]),
-      }),
-      ...(command === "update" ? { actions: expect.arrayContaining([expect.any(String)]) } : {}),
-    });
-    await expectUnrecordedPreview(root, treeBefore);
-  });
+  ])(
+    "keeps $name config and state immutable during preview",
+    async ({ name, command, config, json = true, channel }) => {
+      const { root, stateDir } = await createStateFixture(`openclaw-update-${name}-`, config);
+      await fs.mkdir(path.join(root, "cache"));
+      await fs.mkdir(path.join(root, "tmp"));
+      if (command === "--update") {
+        const legacyStore = path.join(stateDir, "tasks", "runs.sqlite");
+        await writeFixture(`${legacyStore}.migrated`, "legacy migration marker\n");
+        await writeFixture(`${legacyStore}-wal`, "legacy WAL marker\n");
+      } else {
+        openOpenClawStateDatabase({ env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } });
+        await closeOpenClawStateDatabaseAsync();
+      }
+      const treeBefore = await snapshotTree(root);
+      const result = await runPreview(root, command, json, channel);
+      expect(result.code, result.stderr).toBe(0);
+      if (json) {
+        const preview = JSON.parse(result.stdout);
+        expect(preview).toMatchObject({
+          runId: expect.any(String),
+          dryRun: true,
+          ...(name.startsWith("malformed") && {
+            notes: expect.arrayContaining([expect.stringContaining("Would refuse update:")]),
+          }),
+          ...(command === "update"
+            ? { actions: expect.arrayContaining([expect.any(String)]) }
+            : {}),
+        });
+        expect(preview.run).toBeUndefined();
+      } else {
+        expect(result.stdout).toContain("Update dry-run");
+        expect(result.stdout).toContain("Would refuse update:");
+      }
+      await expectUnrecordedPreview(root, treeBefore);
+    },
+  );
 
   it.each([false, true])(
     "describes Doctor migrations but refuses without staged candidate identity (unknownPlugin=%s)",

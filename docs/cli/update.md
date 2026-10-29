@@ -156,6 +156,11 @@ The local diagnostic identifies invalid fields and recommends
 keeps this guidance in its JSON `notes` without changing the configuration, even
 when the authored file cannot be parsed. In that case, preview leaves the database
 engine unresolved instead of assuming a backend; actual updates still refuse admission.
+For malformed source, text and JSON previews use the captured configuration refusal
+without inspecting runtime databases, creating cache or scratch snapshots, or saving
+diagnostic reports. Package-manager probes that create caches are deferred until the
+source is readable. Native ownership and recovery refusals still apply. Readable-configuration
+previews retain their existing diagnostics.
 Public failure reports retain the rejected schema area, such as `gateway.*`,
 while hiding operator-defined keys and rejected values. Admission still runs
 when the selected package version matches the installed version; the no-op

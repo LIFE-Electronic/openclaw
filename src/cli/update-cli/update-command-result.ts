@@ -570,6 +570,7 @@ export function mergeWindowsTaskRecoveryFailure(
 }
 
 export type UpdateAdmissionReportParams = {
+  malformedPreview?: boolean;
   mode?: UpdateRunResult["mode"];
   before?: UpdateRunResult["before"];
   stepResult?: Pick<UpdateRunResult, "steps" | "failedStep">;

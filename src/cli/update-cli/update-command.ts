@@ -115,7 +115,7 @@ async function updateCommandWithRuntime(
     });
     return await withUpdateDatabaseEngine(
       env,
-      async (configReadable) => {
+      async (configReadable, malformedConfig) => {
         if (inputOpts.dryRun && resolveDebugProxySettings(env).enabled) {
           defaultRuntime.error("Warning: Debug HTTP capture is disabled during update dry runs.");
         }
@@ -160,7 +160,11 @@ async function updateCommandWithRuntime(
             invocationCwd,
             env,
             execute,
-            { needsInitialization, captureOriginal },
+            {
+              needsInitialization,
+              captureOriginal,
+              malformedConfig,
+            },
             executorOptions,
           );
         }

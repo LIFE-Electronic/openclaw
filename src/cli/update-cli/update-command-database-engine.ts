@@ -1,8 +1,9 @@
+import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
 import { createUpdateConfigFailure } from "./update-command-config-failure.js";
 
 export async function withUpdateDatabaseEngine<T>(
   env: NodeJS.ProcessEnv,
-  run: (configReadable: boolean) => Promise<T>,
+  run: (configReadable: boolean, malformedConfig?: ConfigFileSnapshot) => Promise<T>,
   opts?: { dryRun?: boolean },
 ): Promise<T> {
   const [
@@ -27,13 +28,11 @@ export async function withUpdateDatabaseEngine<T>(
     observe: false,
     pluginValidation: "core-only",
   }).readConfigFileSnapshot();
-  if (
-    isConfigReadFailure(snapshot) ||
-    snapshot.issues.some((issue) => issue.errorCode === "CONFIG_SOURCE_INVALID")
-  ) {
+  const readFailed = isConfigReadFailure(snapshot);
+  if (readFailed || snapshot.issues.some((issue) => issue.errorCode === "CONFIG_SOURCE_INVALID")) {
     // Preview preflight reports the refusal without inferring an engine from unreadable config.
     if (opts?.dryRun) {
-      return await run(false);
+      return await run(false, readFailed ? undefined : snapshot);
     }
     throw createUpdateConfigFailure(snapshot);
   }

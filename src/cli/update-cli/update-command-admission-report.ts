@@ -151,7 +151,8 @@ async function preparePreMutationUpdateOutcome(
   assertCurrent?.();
   // A settled, unregistered admission owns only its captured refusal. Even a
   // nested report's Run is not authority to reopen history or publish a sentinel.
-  const run = detached ? undefined : params.opts.run;
+  const malformedPreview = params.opts.dryRun === true && params.malformedPreview === true;
+  const run = detached || malformedPreview ? undefined : params.opts.run;
   const active = run ? getUpdateRun(run.runId, { env: run.env }) : undefined;
   const nextAction = params.nextAction ?? params.message;
   if (run && active && nextAction) {
@@ -194,7 +195,11 @@ async function preparePreMutationUpdateOutcome(
     : await prepareResult(
         result,
         params.opts,
-        { nextAction, ...(detached ? { readHistory: false } : {}) },
+        {
+          nextAction,
+          ...(detached || malformedPreview ? { readHistory: false } : {}),
+          ...(malformedPreview ? { writeArtifacts: false } : {}),
+        },
         assertCurrent,
       );
   assertCurrent?.();
