@@ -116,7 +116,7 @@ type InspectionPlan = z.infer<typeof UpdateStateSchemaInspectionPlanSchema>;
 async function loadUpdateDatabaseBackupRuntime() {
   const [{ discoverBackupDatabasePaths }, { readBackupEngine }] = await Promise.all([
     import("./backup-sqlite-snapshot.js"),
-    import("../snapshot/database-backup.js"),
+    import("./database-engine/physical-store.js"),
   ]);
   return { discoverBackupDatabasePaths, readBackupEngine };
 }
@@ -277,7 +277,7 @@ export async function createUpdateDatabaseBackupInProcess(
     directory,
     await measureUpdateStateFiles(inventory.present),
   );
-  const { buildBackupArchivePath } = await import("../commands/backup-shared.js");
+  const { buildBackupArchivePath } = await import("./backup-archive-path-policy.js");
   const { createStoppedSqliteSnapshot, createVerifiedSqliteSnapshot } =
     await import("./sqlite-snapshot.js");
   const { AGENT_FTS_SCHEMAS } = await import("../state/openclaw-agent-fts-schema.js");
@@ -308,8 +308,7 @@ export async function createUpdateDatabaseBackupInProcess(
       return undefined;
     }
   };
-  const { readBackupEngine, capturePostgresBackup } =
-    await import("../snapshot/database-backup.js");
+  const { readBackupEngine } = await import("./database-engine/physical-store.js");
   const requestedOriginalSources = new Set(input.originalCaptureSourcePaths);
   // The inventory gate can yield before every image is consumed. Retain the whole
   // interval so signal cleanup cannot retire a later family's staging token.
@@ -404,6 +403,7 @@ export async function createUpdateDatabaseBackupInProcess(
           const engine = engines.get(sourcePath)!;
           let postgres;
           if (engine.engine === "postgres") {
+            const { capturePostgresBackup } = await import("../snapshot/database-backup.js");
             const exportDirectory = `${snapshotPath}.postgres`;
             await capturePostgresBackup({
               sourcePath,

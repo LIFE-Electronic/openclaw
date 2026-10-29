@@ -3,10 +3,10 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import * as tar from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildBackupArchivePath } from "../commands/backup-shared.js";
 import { verifyBackupArchive } from "../commands/backup-verify.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import type { OpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { buildBackupArchivePath } from "./backup-archive-path-policy.js";
 import {
   withBackupFixture,
   createVerifiedBackup,

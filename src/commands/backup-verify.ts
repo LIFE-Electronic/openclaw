@@ -12,6 +12,7 @@ import {
   isArchivePathWithin,
   normalizeArchivePath,
   normalizeArchiveRoot,
+  buildBackupArchivePath,
 } from "../infra/backup-archive-path-policy.js";
 import { readEngineAnchor } from "../infra/database-engine/open.js";
 import { loadSqliteVecExtension } from "../infra/database-engine/sqlite-vec.js";
@@ -27,7 +28,7 @@ import { readOpenClawAgentDatabaseRegistryRows } from "../state/openclaw-agent-d
 import { resolveUserPath } from "../utils.js";
 import { resolveBackupRecoveryConfig } from "./backup-recovery-config.js";
 import type { BackupSqliteSnapshotFact } from "./backup-resource-inventory.js";
-import { BACKUP_MAX_DECOMPRESSION_RATIO, buildBackupArchivePath } from "./backup-shared.js";
+import { BACKUP_MAX_DECOMPRESSION_RATIO } from "./backup-shared.js";
 import {
   type BackupManifest,
   type NormalizedArchiveEntry,

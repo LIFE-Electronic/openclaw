@@ -10,6 +10,7 @@ import {
   waitForCliSignalExit,
   waitForSignalExitBarriers,
 } from "../cli/signal-exit-barrier.js";
+import { buildBackupArchivePath } from "../infra/backup-archive-path-policy.js";
 import * as lifecycleWriteCustody from "../infra/lifecycle-write-custody.js";
 import { readLifecycleWriteCustody } from "../infra/lifecycle-write-custody.js";
 import {
@@ -22,11 +23,7 @@ import { withTestDir } from "../test-helpers/temp-dir.js";
 import { closeStateDatabaseForTest } from "../test-utils/database-cleanup.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { createTempHomeEnv, type TempHomeEnv } from "../test-utils/temp-home.js";
-import {
-  buildBackupArchivePath,
-  buildBackupArchiveRoot,
-  resolveBackupPlanFromDisk,
-} from "./backup-shared.js";
+import { buildBackupArchiveRoot, resolveBackupPlanFromDisk } from "./backup-shared.js";
 import * as backupVerify from "./backup-verify.js";
 import {
   createMockTarStream,

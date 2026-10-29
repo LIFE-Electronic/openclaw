@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import * as tar from "tar";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { buildBackupArchivePath } from "../infra/backup-archive-path-policy.js";
 import type { PostgresExportEnvelope } from "../snapshot/export-envelope.js";
 import {
   registerOpenClawAgentDatabase,
@@ -14,7 +15,6 @@ import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { backupRestoreCommand } from "./backup-restore.js";
-import { buildBackupArchivePath } from "./backup-shared.js";
 import type { BackupManifest } from "./backup-verify-manifest.js";
 import { backupVerifyCommand, verifyBackupArchive } from "./backup-verify.js";
 import { backupCreateCommand } from "./backup.js";

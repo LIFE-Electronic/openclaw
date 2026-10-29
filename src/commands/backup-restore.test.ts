@@ -5,6 +5,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import * as tar from "tar";
 import { describe, expect, it, vi } from "vitest";
+import { buildBackupArchivePath } from "../infra/backup-archive-path-policy.js";
 import { createBackupArchive } from "../infra/backup-create.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import {
@@ -13,7 +14,6 @@ import {
 } from "../state/openclaw-state-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { backupRestoreCommand } from "./backup-restore.js";
-import { buildBackupArchivePath } from "./backup-shared.js";
 import { encodeTarEntry } from "./backup-tar.test-support.js";
 import type { BackupManifest } from "./backup-verify-manifest.js";
 import { prepareBackupArchive, verifyBackupArchive } from "./backup-verify.js";

@@ -11,6 +11,7 @@ import { installPrivateUpdateHandoffStore } from "../../test/helpers/private-upd
 import { writeFixtureJsonSync } from "../cli/cli-fixtures.test-support.js";
 import { waitForCliSignalExit, waitForSignalExitBarriers } from "../cli/signal-exit-barrier.js";
 import { resolveStateDir } from "../config/paths.js";
+import { buildBackupArchivePath } from "../infra/backup-archive-path-policy.js";
 import * as backupCreate from "../infra/backup-create.js";
 import { acquireGatewayStateOwner } from "../infra/gateway-state-owner.js";
 import * as packageRoot from "../infra/openclaw-root.js";
@@ -44,7 +45,6 @@ import {
 import { VERSION } from "../version.js";
 import type { BackupSqliteSnapshotFact } from "./backup-resource-inventory.js";
 import { backupRestoreCommand } from "./backup-restore.js";
-import { buildBackupArchivePath } from "./backup-shared.js";
 import * as backupVerify from "./backup-verify.js";
 import { prepareDoctorDatabasePreflight } from "./doctor-database-preflight.js";
 import type { DoctorMaintenanceParams } from "./doctor-maintenance-types.js";
