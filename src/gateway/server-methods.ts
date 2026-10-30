@@ -460,6 +460,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "sessions.describe",
       "sessions.resolve",
       "sessions.compaction.list",
+      "sessions.compaction.status",
       "sessions.compaction.get",
       "sessions.create",
       "sessions.compaction.branch",

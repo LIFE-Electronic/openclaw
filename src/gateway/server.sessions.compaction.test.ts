@@ -626,3 +626,27 @@ test("sessions.compact idleOnly never interrupts an embedded user turn", async (
     expect.objectContaining({ waitForCompletion: true }),
   );
 });
+
+test("backend manual compaction waits for completion and exposes its coverage timestamp", async () => {
+  const { dir } = await createSessionStoreDir();
+  await fs.writeFile(
+    path.join(dir, "manual.jsonl"),
+    JSON.stringify({ role: "user", content: "hello" }) + "\n",
+  );
+  await writeSessionStore({ entries: { main: sessionStoreEntry("manual") } });
+  const { ws } = await openClient({
+    client: { id: "cli", version: "test", platform: "test", mode: "backend" },
+  });
+  const before = Date.now();
+  const result = await rpcReq(ws, "sessions.compact", { key: "main" });
+  expect(result.ok).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ waitForCompletion: true }),
+  );
+  const status = await rpcReq<{ lastCompactionAt: number }>(ws, "sessions.compaction.status", {
+    key: "main",
+  });
+  expect(status.ok, JSON.stringify(status)).toBe(true);
+  expect(status.payload?.lastCompactionAt).toBeGreaterThanOrEqual(before);
+  ws.close();
+});

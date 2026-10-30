@@ -2506,7 +2506,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
             defaultLevel: "off",
           },
           trigger: "manual",
-          waitForCompletion: p.idleOnly === true,
+          // Backend manual compactions also establish a durable coverage boundary.
+          waitForCompletion: p.idleOnly === true || client?.connect.client.mode === "backend",
         });
       } catch (err) {
         emitSessionOperation(context, {
