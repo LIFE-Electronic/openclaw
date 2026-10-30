@@ -5,7 +5,9 @@ Skills own workflows; root owns hard policy and routing.
 
 ## Start
 
-- Repo: `https://github.com/openclaw/openclaw`
+- Wolper fork: `https://github.com/LIFE-Electronic/openclaw`; upstream: `https://github.com/openclaw/openclaw`.
+- Wolper 2026.5.28 integration (master) branch: `wolper-base/2026.5.28`. Start native feature branches there and explicitly target it in PRs with `--repo LIFE-Electronic/openclaw --base wolper-base/2026.5.28`.
+- The fork's `main` carries separate upstream history; `wolper/2026.5.28` is the previous feature branch. See `WOLPER_FORK.md` for branch roles and pinned builds. Instructions below about targeting or rebasing on `main` apply to upstream contributions, not Wolper fork work.
 - Replies: repo-root refs only: `extensions/telegram/src/index.ts:80`. No absolute paths, no `~/`.
 - Docs/user-visible work: `pnpm docs:list`, then read relevant docs only.
 - Fix/triage answers need source, tests, current/shipped behavior, and dependency contract proof.

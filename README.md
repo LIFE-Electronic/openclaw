@@ -1,5 +1,9 @@
 # 🦞 OpenClaw — Personal AI Assistant
 
+**Wolper fork:** [`wolper-base/2026.5.28`](https://github.com/LIFE-Electronic/openclaw/tree/wolper-base/2026.5.28)
+is our master/integration branch and the base for Wolper feature branches and PRs.
+See [Wolper branch and runtime guidance](WOLPER_FORK.md#canonical-wolper-branch).
+
 <p align="center">
     <picture>
         <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text-dark.svg">

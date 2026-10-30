@@ -14,6 +14,28 @@ copies for opted-in managed channels.
 `.status` require the matching Wolper backend. The package version stays
 `2026.5.28`; use the full Git commit to identify a fork build.
 
+## Canonical Wolper branch
+
+[`wolper-base/2026.5.28`](https://github.com/LIFE-Electronic/openclaw/tree/wolper-base/2026.5.28)
+is the master/integration branch for Wolper's OpenClaw 2026.5.28 runtime.
+
+| Branch                  | Role                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `wolper-base/2026.5.28` | Canonical Wolper branch; base new native feature branches and PRs on it.                                                       |
+| `wolper/2026.5.28`      | Previous feature branch, merged into the canonical branch through [PR #1](https://github.com/LIFE-Electronic/openclaw/pull/1). |
+| `main`                  | Separate upstream history; not the Wolper integration target.                                                                  |
+
+Set the PR base explicitly, regardless of GitHub's default branch:
+
+```sh
+gh pr create --repo LIFE-Electronic/openclaw --base wolper-base/2026.5.28
+```
+
+Wolper image builds must still pin a reviewed full commit SHA. A merge into the
+canonical branch does not update the backend's fork revision or deploy an image
+automatically. The backend's [branch and build guidance](https://github.com/LIFE-Electronic/wolper/blob/feat/postgresql-backend/openclaw-patches/README.md)
+describes `OPENCLAW_SOURCE_MODE`, `OPENCLAW_SOURCE_DIR`, and `OPENCLAW_SOURCE_REF`.
+
 ## Background channel copies
 
 Actionable results handed to Wolper always include BlueHouse Main
