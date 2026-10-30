@@ -36,6 +36,7 @@ import {
 import { compactEmbeddedAgentSession } from "../../agents/embedded-agent.js";
 import { clearSessionQueues } from "../../auto-reply/reply/queue/cleanup.js";
 import { normalizeReasoningLevel, normalizeThinkLevel } from "../../auto-reply/thinking.js";
+import { resolveStateDir } from "../../config/paths.js";
 import {
   loadSessionStore,
   runSessionsCleanup,
@@ -60,6 +61,7 @@ import {
   measureDiagnosticsTimelineSpanSync,
 } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { CompactionOperations } from "../../infra/wolper-compaction.js";
 import { patchPluginSessionExtension } from "../../plugins/host-hook-state.js";
 import { isPluginJsonValue } from "../../plugins/host-hooks.js";
 import {
@@ -950,6 +952,17 @@ async function handleSessionSend(params: {
     });
   }
 }
+const compactionStores = new Map<string, CompactionOperations>();
+function compactionOperations(): CompactionOperations {
+  const root = resolveStateDir();
+  let operations = compactionStores.get(root);
+  if (!operations) {
+    operations = new CompactionOperations(root);
+    compactionStores.set(root, operations);
+  }
+  return operations;
+}
+
 export const sessionsHandlers: GatewayRequestHandlers = {
   "sessions.list": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
@@ -1011,7 +1024,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
             const activeSessionKeys = collectTrackedActiveSessionRunKeys(context);
             return result.sessions.map((session) =>
               Object.assign({}, session, {
-                hasActiveRun: activeSessionKeys.has(session.key),
+                hasActiveRun:
+                  activeSessionKeys.has(session.key) || compactionOperations().busy(session.key),
               }),
             );
           },
@@ -2275,7 +2289,54 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     );
     respond(true, { messages }, undefined);
   },
-  "sessions.compact": async ({ req, params, respond, context, client, isWebchatConnect }) => {
+  "sessions.compaction.status": async ({ params, respond, context, client }) => {
+    if (
+      client?.connect.client.mode !== "backend" ||
+      typeof params.key !== "string" ||
+      !params.key.trim() ||
+      (params.operationId !== undefined && typeof params.operationId !== "string")
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "A backend session key is required"),
+      );
+      return;
+    }
+    const key = params.key;
+    const { target, storePath } = resolveGatewaySessionTargetFromKey(
+      key,
+      context.getRuntimeConfig(),
+    );
+    const entry =
+      loadSessionStore(storePath)[target.canonicalKey] ?? loadSessionStore(storePath)[key];
+    const row = loadGatewaySessionRow(target.canonicalKey);
+    const operations = compactionOperations();
+    const operation =
+      typeof params.operationId === "string"
+        ? await operations.status(params.operationId, target.canonicalKey)
+        : undefined;
+    respond(true, {
+      version: 1,
+      sessionId: entry?.sessionId ?? null,
+      busy:
+        operations.busy(target.canonicalKey) ||
+        hasTrackedActiveSessionRun({
+          context,
+          requestedKey: key,
+          canonicalKey: target.canonicalKey,
+        }) ||
+        Boolean(entry?.sessionId && isEmbeddedAgentRunActive(entry.sessionId)) ||
+        row?.hasActiveSubagentRun === true,
+      lastCompactionAt: entry?.lastCompactionAt ?? null,
+      usedTokens: row?.totalTokens ?? null,
+      windowTokens: row?.contextTokens ?? null,
+      fresh: row?.totalTokensFresh === true,
+      operation: operation ?? null,
+    });
+  },
+  "sessions.compact": async (options) => {
+    const { req, params, respond, context, client, isWebchatConnect } = options;
     if (!assertValidParams(params, validateSessionsCompactParams, "sessions.compact", respond)) {
       return;
     }
@@ -2297,6 +2358,49 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       key,
       context.getRuntimeConfig(),
     );
+    if (p.operationId !== undefined) {
+      if (
+        p.idleOnly !== true ||
+        p.maxLines !== undefined ||
+        client?.connect.client.mode !== "backend"
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "Operation IDs require backend idle compaction"),
+        );
+        return;
+      }
+      const receipt = await compactionOperations().start(
+        p.operationId,
+        target.canonicalKey,
+        () =>
+          hasTrackedActiveSessionRun({
+            context,
+            requestedKey: key,
+            canonicalKey: target.canonicalKey,
+          }) || loadGatewaySessionRow(target.canonicalKey)?.hasActiveSubagentRun === true,
+        () =>
+          new Promise<Record<string, unknown>>((resolve, reject) => {
+            Promise.resolve(
+              sessionsHandlers["sessions.compact"]({
+                ...options,
+                params: { key, idleOnly: true },
+                respond: (ok, payload, error) =>
+                  ok
+                    ? resolve(payload as Record<string, unknown>)
+                    : reject(new Error(error?.message ?? "Compaction failed")),
+              }),
+            ).catch(reject);
+          }),
+      );
+      context.logGateway.info("Idle compaction operation", {
+        operationId: p.operationId,
+        state: receipt.state,
+      });
+      respond(true, receipt);
+      return;
+    }
     // Lock + read in a short critical section; transcript work happens outside.
     const compactTarget = await updateSessionStore(storePath, (store) => {
       const { entry, primaryKey } = migrateAndPruneGatewaySessionStoreKey({ cfg, key, store });
@@ -2339,15 +2443,31 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     if (maxLines === undefined) {
-      const interruptResult = await interruptSessionRunIfActive({
-        req,
-        context,
-        client,
-        isWebchatConnect,
-        requestedKey: key,
-        canonicalKey: target.canonicalKey,
-        sessionId,
-      });
+      if (
+        p.idleOnly &&
+        (hasTrackedActiveSessionRun({
+          context,
+          requestedKey: key,
+          canonicalKey: target.canonicalKey,
+        }) ||
+          isEmbeddedAgentRunActive(sessionId) ||
+          loadGatewaySessionRow(target.canonicalKey)?.hasActiveSubagentRun === true)
+      ) {
+        respond(true, { ok: true, compacted: false, reason: "busy" });
+        return;
+      }
+      // Background maintenance must never abort a turn admitted after the probe.
+      const interruptResult = p.idleOnly
+        ? { interrupted: false }
+        : await interruptSessionRunIfActive({
+            req,
+            context,
+            client,
+            isWebchatConnect,
+            requestedKey: key,
+            canonicalKey: target.canonicalKey,
+            sessionId,
+          });
       if (interruptResult.error) {
         respond(false, undefined, interruptResult.error);
         return;
@@ -2386,6 +2506,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
             defaultLevel: "off",
           },
           trigger: "manual",
+          waitForCompletion: p.idleOnly === true,
         });
       } catch (err) {
         emitSessionOperation(context, {
@@ -2416,6 +2537,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           }
           entryToUpdate.updatedAt = Date.now();
           entryToUpdate.compactionCount = Math.max(0, entryToUpdate.compactionCount ?? 0) + 1;
+          entryToUpdate.lastCompactionAt = Date.now();
           if (result.result?.sessionId && result.result.sessionId !== entryToUpdate.sessionId) {
             entryToUpdate.sessionId = result.result.sessionId;
           }
@@ -2497,6 +2619,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       delete entryToUpdate.totalTokensFresh;
       delete entryToUpdate.contextBudgetStatus;
       entryToUpdate.updatedAt = Date.now();
+      entryToUpdate.lastCompactionAt = Date.now();
     });
 
     respond(

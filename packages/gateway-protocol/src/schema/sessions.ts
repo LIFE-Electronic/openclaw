@@ -263,6 +263,8 @@ export const SessionsDeleteParamsSchema = Type.Object(
 export const SessionsCompactParamsSchema = Type.Object(
   {
     key: NonEmptyString,
+    idleOnly: Type.Optional(Type.Boolean()),
+    operationId: Type.Optional(NonEmptyString),
     maxLines: Type.Optional(Type.Integer({ minimum: 1 })),
   },
   { additionalProperties: false },

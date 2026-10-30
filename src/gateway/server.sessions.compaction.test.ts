@@ -593,3 +593,36 @@ test("sessions.patch preserves nested model ids under provider overrides", async
     });
   });
 });
+
+test("sessions.compact idleOnly never interrupts an embedded user turn", async () => {
+  const { dir } = await createSessionStoreDir();
+  await fs.writeFile(
+    path.join(dir, "idle-safe.jsonl"),
+    `${JSON.stringify({ role: "user", content: "hello" })}\n`,
+    "utf-8",
+  );
+  await writeSessionStore({ entries: { main: sessionStoreEntry("idle-safe") } });
+  const { ws } = await openClient();
+  embeddedRunMock.activeIds.add("idle-safe");
+  const busy = await rpcReq<{ reason: string }>(ws, "sessions.compact", {
+    key: "main",
+    idleOnly: true,
+  });
+  expect(busy.payload?.reason).toBe("busy");
+  expect(embeddedRunMock.activeIds.has("idle-safe")).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).not.toHaveBeenCalled();
+  embeddedRunMock.activeIds.delete("idle-safe");
+  embeddedRunMock.compactEmbeddedAgentSession.mockResolvedValueOnce({
+    ok: true,
+    compacted: false,
+    reason: "nothing to compact",
+  });
+  const result = await rpcReq<{ compacted: boolean }>(ws, "sessions.compact", {
+    key: "main",
+    idleOnly: true,
+  });
+  expect(result.ok).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ waitForCompletion: true }),
+  );
+});

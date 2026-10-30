@@ -48,7 +48,10 @@ async function writeTestBinding(
   return sessionFile;
 }
 
-function startCompaction(sessionFile: string, options: { currentTokenCount?: number } = {}) {
+function startCompaction(
+  sessionFile: string,
+  options: { currentTokenCount?: number; waitForCompletion?: boolean } = {},
+) {
   return maybeCompactCodexAppServerSession({
     sessionId: "session-1",
     sessionKey: "agent:main:session-1",
@@ -100,6 +103,7 @@ describe("maybeCompactCodexAppServerSession", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     resetCodexAppServerClientFactoryForTest();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -211,6 +215,29 @@ describe("maybeCompactCodexAppServerSession", () => {
       "Codex-native native compaction is unavailable because OpenClaw exec host=node is active for this session.",
     );
     expect(fake.request).not.toHaveBeenCalled();
+  });
+
+  it("waits for the matching native completion for maintenance", async () => {
+    const fake = createFakeCodexClient();
+    setCodexAppServerClientFactoryForTest(async () => fake.client);
+    const sessionFile = await writeTestBinding();
+    let done = false;
+    vi.useFakeTimers();
+    const pending = startCompaction(sessionFile, { waitForCompletion: true }).then((result) => {
+      done = true;
+      return result;
+    });
+    await vi.waitFor(() => expect(fake.request).toHaveBeenCalled());
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(21 * 60 * 1000);
+    expect(done).toBe(false);
+    vi.useRealTimers();
+    await fake.emit({ method: "thread/compacted", params: { threadId: "other" } });
+    expect(done).toBe(false);
+    await fake.emit({ method: "thread/compacted", params: { threadId: "thread-1" } });
+    const result = await pending;
+    expect(result.compacted).toBe(true);
+    expect(compactDetails(result).pending).toBe(false);
   });
 
   it("does not consume native completion notifications after forwarding the request", async () => {

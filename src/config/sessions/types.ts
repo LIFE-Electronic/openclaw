@@ -368,6 +368,8 @@ export type SessionEntry = {
   contextTokens?: number;
   contextBudgetStatus?: SessionContextBudgetStatus;
   compactionCount?: number;
+  /** Completion time shared by manual and automatic compaction recovery. */
+  lastCompactionAt?: number;
   compactionCheckpoints?: SessionCompactionCheckpoint[];
   memoryFlushAt?: number;
   memoryFlushCompactionCount?: number;
