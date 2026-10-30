@@ -556,6 +556,9 @@ export function createAgentEventHandler({
     const payload = {
       runId: clientRunId,
       sessionKey,
+      ...(getAgentRunContext(sourceRunId)?.origin
+        ? { origin: getAgentRunContext(sourceRunId)!.origin }
+        : {}),
       ...(spawnedBy && { spawnedBy }),
       seq,
       state: "delta" as const,
@@ -625,6 +628,9 @@ export function createAgentEventHandler({
     const flushPayload = {
       runId: clientRunId,
       sessionKey,
+      ...(getAgentRunContext(sourceRunId)?.origin
+        ? { origin: getAgentRunContext(sourceRunId)!.origin }
+        : {}),
       ...(spawnedBy && { spawnedBy }),
       seq,
       state: "delta" as const,
@@ -686,6 +692,9 @@ export function createAgentEventHandler({
       const payload = {
         runId: clientRunId,
         sessionKey,
+        ...(getAgentRunContext(sourceRunId)?.origin
+          ? { origin: getAgentRunContext(sourceRunId)!.origin }
+          : {}),
         ...(spawnedBy && { spawnedBy }),
         seq,
         state: "final" as const,
@@ -705,6 +714,9 @@ export function createAgentEventHandler({
     const payload = {
       runId: clientRunId,
       sessionKey,
+      ...(getAgentRunContext(sourceRunId)?.origin
+        ? { origin: getAgentRunContext(sourceRunId)!.origin }
+        : {}),
       ...(spawnedBy && { spawnedBy }),
       seq,
       state: "error" as const,
@@ -896,7 +908,11 @@ export function createAgentEventHandler({
       chatLink?.sessionKey ?? eventSessionKey ?? resolveSessionKeyForRun(evt.runId);
     const clientRunId = chatLink?.clientRunId ?? evt.runId;
     const eventRunId = chatLink?.clientRunId ?? evt.runId;
-    const eventForClients = chatLink ? { ...evt, runId: eventRunId } : evt;
+    const eventForClients = {
+      ...evt,
+      runId: eventRunId,
+      ...(runContext?.origin ? { origin: runContext.origin } : {}),
+    };
     const isAborted =
       chatRunState.abortedRuns.has(clientRunId) || chatRunState.abortedRuns.has(evt.runId);
     // Include sessionKey so Control UI can filter tool streams per session.

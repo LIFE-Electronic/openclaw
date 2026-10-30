@@ -546,6 +546,7 @@ describe("cron tool", () => {
         name: "wake-up",
         schedule: { at: new Date(123).toISOString() },
         agentId: null,
+        payload: { kind: "systemEvent", text: "Wake up" },
       },
     });
 
@@ -989,9 +990,9 @@ describe("cron tool", () => {
     });
   });
 
-  it("uses current delivery context when delivery is null", async () => {
-    expect(
-      await executeAddAndReadDelivery({
+  it("rejects null delivery before inferring current delivery context", async () => {
+    await expect(
+      executeAddAndReadDelivery({
         callId: "call-null-delivery-current-context",
         agentSessionKey: "agent:main:matrix:channel:!abcdef1234567890:example.org",
         currentDeliveryContext: {
@@ -1000,11 +1001,8 @@ describe("cron tool", () => {
         },
         delivery: null,
       }),
-    ).toEqual({
-      mode: "announce",
-      channel: "matrix",
-      to: "!AbCdEf1234567890:example.org",
-    });
+    ).rejects.toThrow("job.delivery: must be object");
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   it("falls back to stored delivery context when current context has no target", async () => {
@@ -1047,7 +1045,7 @@ describe("cron tool", () => {
     ).toEqual({ mode: "none" });
   });
 
-  it("infers delivery when delivery is null", async () => {
+  it("rejects null delivery before inferring stored delivery context", async () => {
     extractDeliveryInfoMock.mockReturnValueOnce({
       deliveryContext: {
         to: "alice",
@@ -1055,16 +1053,14 @@ describe("cron tool", () => {
       threadId: undefined,
     });
 
-    expect(
-      await executeAddAndReadDelivery({
+    await expect(
+      executeAddAndReadDelivery({
         callId: "call-null-delivery",
         agentSessionKey: "agent:main:dm:alice",
         delivery: null,
       }),
-    ).toEqual({
-      mode: "announce",
-      to: "alice",
-    });
+    ).rejects.toThrow("job.delivery: must be object");
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   // ── Flat-params recovery (issue #11310) ──────────────────────────────
@@ -1137,7 +1133,8 @@ describe("cron tool", () => {
         name: "orphan-name",
         enabled: true,
       }),
-    ).rejects.toThrow("job required");
+    ).rejects.toThrow("job: must be object");
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   it("prefers existing non-empty job over flat params", async () => {
@@ -1169,18 +1166,17 @@ describe("cron tool", () => {
     expect(delivery).toEqual({ mode: "none" });
   });
 
-  it("preserves explicit mode-less delivery objects for add", async () => {
-    callGatewayMock.mockResolvedValueOnce({ ok: true });
-
-    const delivery = await executeAddAndReadDelivery({
-      callId: "call-implicit-announce",
-      agentSessionKey: "agent:main:discord:dm:buddy",
-      delivery: { channel: "telegram", to: "123" },
-    });
-    expect(delivery).toEqual({
-      channel: "telegram",
-      to: "123",
-    });
+  it("rejects explicit mode-less delivery objects before gateway add", async () => {
+    // The carried validator requires the delivery discriminant; omitting the
+    // entire delivery object still retains the existing inference contract.
+    await expect(
+      executeAddAndReadDelivery({
+        callId: "call-implicit-announce",
+        agentSessionKey: "agent:main:discord:dm:buddy",
+        delivery: { channel: "telegram", to: "123" },
+      }),
+    ).rejects.toThrow("job.delivery.mode: required");
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   it("does not infer announce delivery when mode is webhook", async () => {
@@ -1207,7 +1203,7 @@ describe("cron tool", () => {
           delivery: { mode: "webhook" },
         },
       }),
-    ).rejects.toThrow('delivery.mode="webhook" requires delivery.to to be a valid http(s) URL');
+    ).rejects.toThrow("job.delivery.to: required");
     expect(callGatewayMock).toHaveBeenCalledTimes(0);
   });
 

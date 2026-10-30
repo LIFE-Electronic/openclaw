@@ -114,6 +114,7 @@ export type CronExecutionResult = {
 };
 
 export function createCronPromptExecutor(params: {
+  execution: import("../../infra/wolper-background.js").BackgroundExecution;
   cfg: OpenClawConfig;
   cfgWithAgentDefaults: OpenClawConfig;
   job: CronJob;
@@ -181,7 +182,7 @@ export function createCronPromptExecutor(params: {
       cfg: params.cfgWithAgentDefaults,
       provider: params.liveSelection.provider,
       model: params.liveSelection.model,
-      runId: params.cronSession.sessionEntry.sessionId,
+      runId: params.execution.runId,
       sessionId: params.cronSession.sessionEntry.sessionId,
       lane: resolveCronAgentLane(params.lane),
       agentDir: params.agentDir,
@@ -231,7 +232,7 @@ export function createCronPromptExecutor(params: {
             model: modelOverride,
             thinkLevel: params.thinkLevel,
             timeoutMs: params.timeoutMs,
-            runId: params.cronSession.sessionEntry.sessionId,
+            runId: params.execution.runId,
             lane: resolveCronAgentLane(params.lane),
             cliSessionId,
             skillsSnapshot: params.skillsSnapshot,
@@ -312,7 +313,7 @@ export function createCronPromptExecutor(params: {
               }
             : undefined,
           sourceReplyDeliveryMode,
-          runId: params.cronSession.sessionEntry.sessionId,
+          runId: params.execution.runId,
           requireExplicitMessageTarget: params.sourceDelivery.messageTool.requireExplicitTarget,
           disableMessageTool: !params.sourceDelivery.messageTool.enabled,
           forceMessageTool: params.sourceDelivery.messageTool.force,
@@ -350,6 +351,7 @@ export function createCronPromptExecutor(params: {
 }
 
 export async function executeCronRun(params: {
+  execution: import("../../infra/wolper-background.js").BackgroundExecution;
   cfg: OpenClawConfig;
   cfgWithAgentDefaults: OpenClawConfig;
   job: CronJob;
@@ -394,11 +396,13 @@ export async function executeCronRun(params: {
     normalizeVerboseLevel(params.cronSession.sessionEntry.verboseLevel) ??
     normalizeVerboseLevel(params.agentVerboseDefault) ??
     "off";
-  registerAgentRunContext(params.cronSession.sessionEntry.sessionId, {
+  registerAgentRunContext(params.execution.runId, {
+    origin: params.execution.origin,
     sessionKey: params.runSessionKey,
     verboseLevel: resolvedVerboseLevel,
   });
   const executor = createCronPromptExecutor({
+    execution: params.execution,
     cfg: params.cfg,
     cfgWithAgentDefaults: params.cfgWithAgentDefaults,
     job: params.job,

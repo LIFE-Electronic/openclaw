@@ -3,6 +3,15 @@ import Testing
 @testable import OpenClaw
 
 struct CronModelsTests {
+    @Test func `bluehouse delivery round trips without losing its destination`() throws {
+        let data = Data(#"{"mode":"bluehouse","to":"agent:main:acceptance"}"#.utf8)
+        let decoded = try JSONDecoder().decode(CronDelivery.self, from: data)
+        #expect(decoded.mode.rawValue == "bluehouse")
+        #expect(decoded.to == "agent:main:acceptance")
+        let encoded = try JSONEncoder().encode(decoded)
+        #expect(try JSONDecoder().decode(CronDelivery.self, from: encoded) == decoded)
+    }
+
     private func makeCronJob(
         name: String,
         payloadText: String,

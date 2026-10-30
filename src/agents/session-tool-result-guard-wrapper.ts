@@ -30,6 +30,8 @@ export function guardSessionManager(
   opts?: {
     agentId?: string;
     sessionKey?: string;
+    heartbeatRunId?: string;
+    backgroundExecution?: import("../infra/wolper-background.js").BackgroundExecution;
     config?: OpenClawConfig;
     contextWindowTokens?: number;
     inputProvenance?: InputProvenance;
@@ -74,6 +76,37 @@ export function guardSessionManager(
     const redacted = redactTranscriptMessage(message, opts?.config);
     if (redacted !== message) {
       message = redacted;
+      changed = true;
+    }
+    // Heartbeats suppress live deltas/lifecycle on interactive chat surfaces.
+    // Persist their native run identity so transcript and final events join
+    // even after a subscriber reconnects; never infer identity from text.
+    const execution = opts?.backgroundExecution;
+    if (message.role === "assistant" && execution) {
+      const previous = (message as AgentMessage & { __openclaw?: unknown })["__openclaw"];
+      message = {
+        ...message,
+        __openclaw: {
+          ...(previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {}),
+          runId: execution.runId,
+          origin: execution.origin,
+          ...(execution.origin.is_heartbeat ? { isHeartbeat: true } : {}),
+        },
+      } as AgentMessage;
+      changed = true;
+    }
+    const heartbeatRunId = opts?.heartbeatRunId?.trim();
+    if (message.role === "assistant" && heartbeatRunId) {
+      const previous = (message as AgentMessage & { __openclaw?: unknown })["__openclaw"];
+      const identified = {
+        ...message,
+        __openclaw: {
+          ...(previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {}),
+          runId: heartbeatRunId,
+          isHeartbeat: true,
+        },
+      };
+      message = identified;
       changed = true;
     }
     return changed ? { message } : undefined;

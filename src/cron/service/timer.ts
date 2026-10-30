@@ -1,5 +1,6 @@
 import { formatEmbeddedAgentExecutionPhase } from "../../agents/embedded-agent-runner/execution-phase.js";
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
+import { getRuntimeConfig } from "../../config/config.js";
 import { readSessionEntry } from "../../config/sessions/store-load.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
@@ -8,6 +9,11 @@ import {
   HEARTBEAT_SKIP_CRON_IN_PROGRESS,
   isRetryableHeartbeatBusySkipReason,
 } from "../../infra/heartbeat-wake.js";
+import { publishBackgroundResult } from "../../infra/wolper-background-runtime.js";
+import {
+  createBackgroundExecution,
+  type BackgroundExecution,
+} from "../../infra/wolper-background.js";
 import {
   DEFAULT_AGENT_ID,
   isSubagentSessionKey,
@@ -162,10 +168,53 @@ type CronAgentWatchdog = {
 export async function executeJobCoreWithTimeout(
   state: CronServiceState,
   job: CronJob,
+  runId?: string,
+): Promise<Awaited<ReturnType<typeof executeJobCore>>> {
+  const execution = createBackgroundExecution(
+    "cron",
+    job.id,
+    job.sessionTarget === "main",
+    job.name,
+  );
+  if (runId) {
+    execution.runId = runId;
+  }
+  if (job.delivery?.mode === "bluehouse") {
+    execution.destinationSessionKey = job.delivery.to || "agent:main:main";
+  }
+  let result: Awaited<ReturnType<typeof executeJobCore>>;
+  try {
+    result = await executeBackgroundJobWithTimeout(state, job, execution);
+  } catch (error) {
+    result = { status: "error", error: String(error) };
+  }
+  if (result.status === "error" && execution.destinationSessionKey) {
+    // One terminal failure notice, including setup errors and watchdog aborts.
+    // Retrying its handoff never enters this execution function again.
+    await publishBackgroundResult({
+      execution,
+      sourceSessionKey: result.sessionKey ?? `agent:${job.agentId ?? "main"}:cron:${job.id}`,
+      destinationSessionKey: execution.destinationSessionKey,
+      outcome: "failed",
+      payloads: [],
+      cfg: getRuntimeConfig(),
+    });
+  }
+  return {
+    ...result,
+    runId: execution.runId,
+    bluehouseDestination: execution.destinationSessionKey,
+  };
+}
+
+async function executeBackgroundJobWithTimeout(
+  state: CronServiceState,
+  job: CronJob,
+  execution: BackgroundExecution,
 ): Promise<Awaited<ReturnType<typeof executeJobCore>>> {
   const jobTimeoutMs = resolveCronJobTimeoutMs(job);
   if (typeof jobTimeoutMs !== "number") {
-    return await executeJobCore(state, job);
+    return await executeJobCore(state, job, undefined, { execution });
   }
 
   const runAbortController = new AbortController();
@@ -192,6 +241,7 @@ export async function executeJobCoreWithTimeout(
     triggerTimeout,
   });
   const corePromise = executeJobCore(state, job, runAbortController.signal, {
+    execution,
     onExecutionStarted: deferTimeoutUntilExecutionStart ? watchdog.noteRunnerStarted : undefined,
     onExecutionPhase: deferTimeoutUntilExecutionStart ? watchdog.notePhase : undefined,
   });
@@ -1357,7 +1407,7 @@ export async function onTimer(state: CronServiceState) {
       const taskRunId = tryCreateCronTaskRun({ state, job, startedAt });
 
       try {
-        const result = await executeJobCoreWithTimeout(state, job);
+        const result = await executeJobCoreWithTimeout(state, job, taskRunId);
         return {
           jobId: id,
           job,
@@ -1832,6 +1882,7 @@ export async function executeJobCore(
   job: CronJob,
   abortSignal?: AbortSignal,
   options?: {
+    execution?: BackgroundExecution;
     onExecutionStarted?: (info?: CronAgentExecutionStarted) => void;
     onExecutionPhase?: (info: CronAgentExecutionPhaseUpdate) => void;
   },
@@ -1873,7 +1924,13 @@ export async function executeJobCore(
     return resolveAbortError();
   }
   if (job.sessionTarget === "main") {
-    return await executeMainSessionCronJob(state, job, abortSignal, waitWithAbort);
+    return await executeMainSessionCronJob(
+      state,
+      job,
+      abortSignal,
+      waitWithAbort,
+      options?.execution,
+    );
   }
 
   return await executeDetachedCronJob(state, job, abortSignal, resolveAbortError, options);
@@ -1884,6 +1941,7 @@ async function executeMainSessionCronJob(
   job: CronJob,
   abortSignal: AbortSignal | undefined,
   waitWithAbort: (ms: number) => Promise<void>,
+  execution = createBackgroundExecution("cron", job.id, true, job.name),
 ): Promise<
   CronRunOutcome &
     CronRunTelemetry & {
@@ -1930,7 +1988,8 @@ async function executeMainSessionCronJob(
         reason,
         agentId: job.agentId,
         sessionKey: cronRunSessionKey,
-        heartbeat: { target: "last" },
+        heartbeat: { target: execution.destinationSessionKey ? "none" : "last" },
+        backgroundExecution: execution,
       });
       if (
         heartbeatResult.status !== "skipped" ||
@@ -1946,7 +2005,8 @@ async function executeMainSessionCronJob(
           reason,
           agentId: job.agentId,
           sessionKey: cronRunSessionKey,
-          heartbeat: { target: "last" },
+          heartbeat: { target: execution.destinationSessionKey ? "none" : "last" },
+          backgroundExecution: execution,
         });
         return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
       }
@@ -1963,7 +2023,8 @@ async function executeMainSessionCronJob(
           reason,
           agentId: job.agentId,
           sessionKey: cronRunSessionKey,
-          heartbeat: { target: "last" },
+          heartbeat: { target: execution.destinationSessionKey ? "none" : "last" },
+          backgroundExecution: execution,
         });
         return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
       }
@@ -1998,7 +2059,8 @@ async function executeMainSessionCronJob(
     reason: `cron:${job.id}`,
     agentId: job.agentId,
     sessionKey: cronRunSessionKey,
-    heartbeat: { target: "last" },
+    heartbeat: { target: execution.destinationSessionKey ? "none" : "last" },
+    backgroundExecution: execution,
   });
   return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
 }
@@ -2009,6 +2071,7 @@ async function executeDetachedCronJob(
   abortSignal: AbortSignal | undefined,
   resolveAbortError: () => { status: "error"; error: string },
   options?: {
+    execution?: BackgroundExecution;
     onExecutionStarted?: (info?: CronAgentExecutionStarted) => void;
     onExecutionPhase?: (info: CronAgentExecutionPhaseUpdate) => void;
   },
@@ -2044,6 +2107,7 @@ async function executeDetachedCronJob(
   const res = await state.deps.runIsolatedAgentJob({
     job,
     message: job.payload.message,
+    execution: options?.execution,
     abortSignal,
     onExecutionStarted: options?.onExecutionStarted,
     onExecutionPhase: options?.onExecutionPhase,
@@ -2067,6 +2131,7 @@ async function executeDetachedCronJob(
     delivered: res.delivered,
     deliveryAttempted: res.deliveryAttempted,
     delivery: res.delivery,
+    runId: res.runId,
     sessionId: res.sessionId,
     sessionKey: res.sessionKey,
     diagnostics: res.diagnostics,
@@ -2142,6 +2207,8 @@ function emitJobFinished(
     jobId: job.id,
     action: "finished",
     job,
+    runId: result.runId,
+    bluehouseDestination: result.bluehouseDestination,
     status: result.status,
     error: result.error,
     summary: result.summary,

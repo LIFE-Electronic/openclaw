@@ -1,14 +1,21 @@
 import { Type, type TSchema } from "typebox";
+import { validateCronAddParams } from "../../../packages/gateway-protocol/src/index.js";
 import { getRuntimeConfig } from "../../config/config.js";
 import { resolveCronCreationDelivery } from "../../cron/delivery-context.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronDelivery } from "../../cron/types.js";
 import { normalizeHttpWebhookUrl } from "../../cron/webhook-url.js";
+import { defaultBluehouseDelivery } from "../../infra/wolper-background.js";
+import { logWarn } from "../../logger.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { normalizeLowercaseStringOrEmpty } from "../../shared/string-coerce.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
 import type { DeliveryContext } from "../../utils/delivery-context.shared.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
+import {
+  cronAddGatewayValidationMessage,
+  cronAddValidationMessage,
+} from "../cron-tool-validation.js";
 import {
   optionalFiniteNumberSchema,
   optionalNonNegativeIntegerSchema,
@@ -39,13 +46,14 @@ const CRON_ACTIONS = [
   "remove",
   "run",
   "runs",
+  "delivery_status",
   "wake",
 ] as const;
 
 const CRON_SCHEDULE_KINDS = ["at", "every", "cron"] as const;
 const CRON_WAKE_MODES = ["now", "next-heartbeat"] as const;
 const CRON_PAYLOAD_KINDS = ["systemEvent", "agentTurn"] as const;
-const CRON_DELIVERY_MODES = ["none", "announce", "webhook"] as const;
+const CRON_DELIVERY_MODES = ["none", "announce", "webhook", "bluehouse"] as const;
 const CRON_RUN_MODES = ["due", "force"] as const;
 const CRON_FLAT_PAYLOAD_KEYS = [
   "message",
@@ -254,16 +262,26 @@ const CronFailureAlertSchema = Type.Optional(
 const CronJobObjectSchema = Type.Optional(
   Type.Object(
     {
-      name: Type.Optional(Type.String({ description: "Job name" })),
-      schedule: CronScheduleSchema,
-      sessionTarget: Type.Optional(
-        Type.String({
-          description: "main | isolated | current | session:<id>",
-        }),
+      name: Type.String({ minLength: 1, description: "Job name" }),
+      schedule: Type.Object(
+        { ...CronScheduleSchema.properties, kind: stringEnum(CRON_SCHEDULE_KINDS) },
+        { additionalProperties: false },
       ),
+      sessionTarget: Type.String({
+        description: "main | isolated | current | session:<id>",
+        pattern: "^(main|isolated|current|session:.+)$",
+      }),
       wakeMode: optionalStringEnum(CRON_WAKE_MODES, { description: "Wake timing" }),
-      payload: CronPayloadSchema,
-      delivery: CronDeliverySchema,
+      payload: Type.Object(
+        { ...CronPayloadSchema.properties, kind: stringEnum(CRON_PAYLOAD_KINDS) },
+        { additionalProperties: false },
+      ),
+      delivery: Type.Optional(
+        Type.Object(
+          { ...CronDeliverySchema.properties, mode: stringEnum(CRON_DELIVERY_MODES) },
+          { additionalProperties: false },
+        ),
+      ),
       agentId: nullableStringSchema("Agent id, or null to keep it unset"),
       description: Type.Optional(Type.String({ description: "Human description" })),
       enabled: Type.Optional(Type.Boolean()),
@@ -271,7 +289,7 @@ const CronJobObjectSchema = Type.Optional(
       sessionKey: nullableStringSchema("Explicit session key, or null to clear it"),
       failureAlert: CronFailureAlertSchema,
     },
-    { additionalProperties: true },
+    { additionalProperties: false },
   ),
 );
 
@@ -303,6 +321,10 @@ const CronPatchObjectSchema = Type.Optional(
 export const CronToolSchema = Type.Object(
   {
     action: stringEnum(CRON_ACTIONS),
+    runId: Type.Optional(Type.String({ description: "Execution id from cron.runs" })),
+    destinationSessionKey: Type.Optional(
+      Type.String({ description: "BlueHouse destination; defaults to agent:main:main" }),
+    ),
     ...gatewayCallOptionSchemaProperties(),
     includeDisabled: Type.Optional(Type.Boolean()),
     job: CronJobObjectSchema,
@@ -327,6 +349,43 @@ type CronToolOptions = {
 };
 
 type GatewayToolCaller = typeof callGatewayTool;
+
+/** Use the scheduler's validator before the agent's generic tool validation. */
+function prepareCronToolArguments(args: unknown, opts?: CronToolOptions): Record<string, unknown> {
+  if (!isRecord(args) || args.action !== "add") {
+    return args as Record<string, unknown>;
+  }
+  const params = structuredClone(args);
+  // Keep the shipped flat-input recovery, but never guess invented field names.
+  if (isMissingOrEmptyObject(params.job)) {
+    const recovered = recoverCronObjectFromFlatParams(params);
+    if (recovered.found && hasCronCreateSignal(recovered.value)) {
+      params.job = recovered.value;
+    }
+  }
+  let job: ReturnType<typeof normalizeCronJobCreate>;
+  try {
+    job = normalizeCronJobCreate(params.job, {
+      sessionContext: { sessionKey: opts?.agentSessionKey },
+    });
+  } catch (error) {
+    logWarn("cron.add rejected invalid job normalization before Gateway RPC");
+    throw new Error(
+      cronAddGatewayValidationMessage(error instanceof Error ? error.message : String(error)),
+      { cause: error },
+    );
+  }
+  if (!validateCronAddParams(job)) {
+    logWarn("cron.add rejected invalid job arguments before Gateway RPC");
+    throw new Error(cronAddValidationMessage(validateCronAddParams.errors));
+  }
+  // Delivery inference belongs to execute(), where the current channel is known.
+  // An inferred announce mode must not become an explicit user destination.
+  if (job && isRecord(params.job) && params.job.delivery === undefined) {
+    delete job.delivery;
+  }
+  return { ...params, job };
+}
 
 type CronToolDeps = {
   callGatewayTool?: GatewayToolCaller;
@@ -564,6 +623,7 @@ DELIVERY (top-level):
   - isolated agentTurn default when omitted: "announce"
   - announce: send to chat channel; isolated/current/session only; optional channel/to
   - threadId: chat thread/topic id
+  - bluehouse: commit the final result to delivery.to native session key (default agent:main:main for webchat-created jobs). No second wake or announcement is needed.
   - webhook: POST finished-run event to delivery.to URL
   - Specific chat/recipient: set announce delivery.channel/to; do not call messaging tools inside run.
 
@@ -572,6 +632,12 @@ CRITICAL CONSTRAINTS:
 - sessionTarget="isolated" | "current" | "session:xxx" REQUIRES payload.kind="agentTurn"
 - Webhook: delivery.mode="webhook" and delivery.to URL.
 Default: prefer isolated agentTurn jobs unless the user explicitly wants current-session binding.
+For BlueHouse use delivery={mode:"bluehouse",to:"agent:main:main"}; return the visible result as your final reply.
+Do not send it again through cron wake, sessions_send, or messaging tools.
+A successful cron run, fresh file, wake ok, or native transcript is not a delivery receipt.
+Use runs to obtain runId, then delivery_status with that runId and destinationSessionKey.
+Only status="delivered" with rowId proves a committed BlueHouse message; pending/unknown are not delivery.
+Watchdogs must report missing receipts and must not rerun completed jobs merely to retry delivery.
 
 RESTRICTED CRON RUNS:
 - Some isolated cron runs get narrow self-cleanup grant: status/list self-only, get/runs current job only, mutation only remove current job.
@@ -582,8 +648,9 @@ WAKE MODES (for wake action):
 
 Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous messages as job context.`,
     parameters: CronToolSchema,
+    prepareArguments: (args) => prepareCronToolArguments(args, opts),
     execute: async (_toolCallId, args) => {
-      const params = args as Record<string, unknown>;
+      const params = prepareCronToolArguments(args, opts);
       const action = readStringParam(params, "action", { required: true });
       assertCronSelfRemoveScope(opts, action, params);
       const parsedGatewayOpts = readGatewayCallOptions(params);
@@ -593,6 +660,15 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
       };
 
       switch (action) {
+        case "delivery_status": {
+          return jsonResult(
+            await callGateway("wolper.deliveries.status", gatewayOpts, {
+              executionId: readStringParam(params, "runId", { required: true }),
+              destinationSessionKey:
+                readStringParam(params, "destinationSessionKey") ?? "agent:main:main",
+            }),
+          );
+        }
         case "status": {
           const result = await callGateway("cron.status", gatewayOpts, {});
           return jsonResult(
@@ -662,6 +738,10 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
           if (!params.job || typeof params.job !== "object") {
             throw new Error("job required");
           }
+          const requestedDelivery =
+            isRecord(params.job) && isRecord(params.job.delivery)
+              ? (structuredClone(params.job.delivery) as CronDelivery)
+              : undefined;
           const job =
             normalizeCronJobCreate(params.job, {
               sessionContext: { sessionKey: opts?.agentSessionKey },
@@ -733,6 +813,16 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
             }
           }
 
+          if (
+            job &&
+            typeof job === "object" &&
+            opts?.currentDeliveryContext?.channel === "webchat"
+          ) {
+            (job as { delivery?: CronDelivery }).delivery = defaultBluehouseDelivery(
+              requestedDelivery,
+              "webchat",
+            );
+          }
           const contextMessages = readNonNegativeIntegerParam(params, "contextMessages") ?? 0;
           if (
             job &&
@@ -754,7 +844,17 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
               }
             }
           }
-          return jsonResult(await callGateway("cron.add", gatewayOpts, job));
+          try {
+            return jsonResult(await callGateway("cron.add", gatewayOpts, job));
+          } catch (error) {
+            // Only validation failures get a repair hint; transport failures keep
+            // their original meaning and must not suggest blindly creating again.
+            if (error instanceof Error && error.message.startsWith("invalid cron.add params:")) {
+              logWarn("cron.add rejected by Gateway validation");
+              throw new Error(cronAddGatewayValidationMessage(error.message), { cause: error });
+            }
+            throw error;
+          }
         }
         case "update": {
           const id = readCronJobIdParam(params);

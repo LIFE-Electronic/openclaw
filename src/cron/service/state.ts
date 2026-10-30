@@ -38,6 +38,7 @@ export type CronEvent = {
   sessionId?: string;
   sessionKey?: string;
   runId?: string;
+  bluehouseDestination?: string;
   nextRunAtMs?: number;
 } & CronRunTelemetry;
 
@@ -89,6 +90,7 @@ export type CronServiceDeps = {
   ) => void;
   requestHeartbeat: (opts: HeartbeatWakeRequest) => void;
   runHeartbeatOnce?: (opts?: {
+    backgroundExecution?: import("../../infra/wolper-background.js").BackgroundExecution;
     source?: HeartbeatWakeRequest["source"];
     intent?: HeartbeatWakeRequest["intent"];
     reason?: string;
@@ -106,6 +108,7 @@ export type CronServiceDeps = {
   /** WakeMode=now: delay between runHeartbeatOnce retries while busy. */
   wakeNowHeartbeatBusyRetryDelayMs?: number;
   runIsolatedAgentJob: (params: {
+    execution?: import("../../infra/wolper-background.js").BackgroundExecution;
     job: CronJob;
     message: string;
     abortSignal?: AbortSignal;

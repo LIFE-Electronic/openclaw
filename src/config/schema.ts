@@ -388,7 +388,7 @@ function applyHeartbeatTargetHints(
   const next: ConfigUiHints = { ...hints };
   const channelList = listHeartbeatTargetChannels(channels);
   const channelHelp = channelList.length ? ` Known channels: ${channelList.join(", ")}.` : "";
-  const help = `Delivery target ("last", "none", or a channel id).${channelHelp}`;
+  const help = `Delivery target ("bluehouse" for durable native-chat delivery, "last", "none", or a channel id).${channelHelp}`;
   const paths = ["agents.defaults.heartbeat.target", "agents.list.*.heartbeat.target"];
   for (const path of paths) {
     const current = next[path] ?? {};

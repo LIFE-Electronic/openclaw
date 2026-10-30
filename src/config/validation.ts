@@ -1562,7 +1562,7 @@ function validateConfigObjectWithPluginsBase(
       return;
     }
     const normalized = normalizeLowercaseStringOrEmpty(trimmed);
-    if (normalized === "last" || normalized === "none") {
+    if (normalized === "last" || normalized === "none" || normalized === "bluehouse") {
       return;
     }
     if (normalizeBundledChannelId(trimmed)) {

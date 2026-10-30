@@ -48,7 +48,7 @@ struct CronJobEditor: View {
     @State var payloadKind: PayloadKind = .systemEvent
     @State var systemEventText: String = ""
     @State var agentMessage: String = ""
-    enum DeliveryChoice: String, CaseIterable, Identifiable { case announce, none; var id: String {
+    enum DeliveryChoice: String, CaseIterable, Identifiable { case announce, none, bluehouse; var id: String {
         rawValue
     } }
     @State var deliveryMode: DeliveryChoice = .announce
@@ -329,6 +329,7 @@ struct CronJobEditor: View {
                     self.gridLabel("Delivery")
                     Picker("", selection: self.$deliveryMode) {
                         Text("Announce summary").tag(DeliveryChoice.announce)
+                        Text("BlueHouse").tag(DeliveryChoice.bluehouse)
                         Text("None").tag(DeliveryChoice.none)
                     }
                     .labelsHidden()
@@ -336,6 +337,10 @@ struct CronJobEditor: View {
                 }
             }
 
+            if self.deliveryMode == .bluehouse {
+                TextField("Destination session (agent:main:main)", text: self.$to)
+                    .textFieldStyle(.roundedBorder)
+            }
             if self.deliveryMode == .announce {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 10) {
                     GridRow {

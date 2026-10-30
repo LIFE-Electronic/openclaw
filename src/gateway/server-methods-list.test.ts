@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { GATEWAY_EVENTS, listGatewayMethods } from "./server-methods-list.js";
 
 describe("GATEWAY_EVENTS", () => {
+  it("advertises committed native copies", () => {
+    expect(GATEWAY_EVENTS).toContain("wolper.message.copied");
+    expect(listGatewayMethods()).toContain("wolper.messages.copy");
+  });
   it("advertises Talk event streams in hello features", () => {
     expect(GATEWAY_EVENTS).toContain("talk.event");
     expect(GATEWAY_EVENTS).not.toContain("talk.realtime.relay");

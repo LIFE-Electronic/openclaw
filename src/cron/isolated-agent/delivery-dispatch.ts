@@ -40,7 +40,6 @@ import {
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { shouldAttemptTtsPayload } from "../../tts/tts-config.js";
-import { createCronExecutionId } from "../run-id.js";
 import { hasScheduledNextRunAtMs } from "../service/jobs.js";
 import type { CronJob, CronRunTelemetry } from "../types.js";
 import type { DeliveryTargetResolution } from "./delivery-target.js";
@@ -102,6 +101,7 @@ type DispatchCronDeliveryParams = {
   runSessionKey: string;
   sessionId: string;
   runStartedAt: number;
+  executionId?: string;
   runEndedAt: number;
   timeoutMs: number;
   resolvedDelivery: DeliveryTargetResolution;
@@ -385,9 +385,12 @@ async function maybeApplyTtsToCronPayloads(params: {
 function buildDirectCronDeliveryIdempotencyKey(params: {
   jobId: string;
   runStartedAt: number;
+  executionId?: string;
   delivery: SuccessfulDeliveryTarget;
 }): string {
-  const executionId = createCronExecutionId(params.jobId, params.runStartedAt);
+  // Allocate identity at execution start, never at delivery/replay. Standalone
+  // callers retain the shipped deterministic key when no scheduler ID exists.
+  const executionId = params.executionId ?? `cron:${params.jobId}:${params.runStartedAt}`;
   const threadId =
     params.delivery.threadId == null || params.delivery.threadId === ""
       ? ""
@@ -814,6 +817,7 @@ export async function dispatchCronDelivery(
     const deliveryIdempotencyKey = buildDirectCronDeliveryIdempotencyKey({
       jobId: params.job.id,
       runStartedAt: params.runStartedAt,
+      executionId: params.executionId,
       delivery,
     });
     try {

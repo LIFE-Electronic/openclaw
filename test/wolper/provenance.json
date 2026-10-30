@@ -1,0 +1,32 @@
+{
+  "upstreamTag": "v2026.5.28",
+  "upstreamCommit": "e93216080aa1f425d3ab127014603eba8e365b2d",
+  "wolperCommit": "6f0aab32d8c28097bb155e9131d5a8faac942012",
+  "patches": [
+    {
+      "file": "heartbeat-identity.patch",
+      "sha256": "73b777997ee5f027a921382297ab892cf0c5e9a41cd36440b582f8c36815daa5"
+    },
+    {
+      "file": "media-copy-delivery.patch",
+      "sha256": "6a8c487909c2cb7f4e30e6bdd15ec9f15304edf94ef1e7cff4f89682c3d4c75d"
+    },
+    {
+      "file": "session-lock-disposal.patch",
+      "sha256": "9df0602e87f836e3aad1abcd7541e20f46b0c2d53eb5d84f040b08fd20ee59d4"
+    },
+    {
+      "file": "webchat-completion.patch",
+      "sha256": "7ff7600a282f65c33ff09b82aefb9a77268b3597c3a06c98752a0d236fc21259"
+    },
+    {
+      "file": "zz-background-delivery.patch",
+      "sha256": "3b2a0545a5b58aed440ddf1dd317cd79109e4c65e2ebbbcf4800eccb1439f7d2"
+    },
+    {
+      "file": "zzz-cron-tool-validation.patch",
+      "sha256": "79ddf241f7db773fc6f4eae14d1609657dd4c9333f968e2bd5ade439a7225eb9"
+    }
+  ],
+  "mediaHelperInputSha256": "b63705e1370715b6675a32f9e29250c58bb8318d43f43c3d53ac76ea7a455063"
+}

@@ -716,23 +716,25 @@ export async function addCronJob(state: CronState): Promise<boolean> {
     }
     const selectedDeliveryMode = form.deliveryMode;
     const delivery =
-      selectedDeliveryMode && selectedDeliveryMode !== "none"
-        ? {
-            mode: selectedDeliveryMode,
-            channel:
-              selectedDeliveryMode === "announce"
-                ? normalizePersistedDeliveryChannel(form.deliveryChannel, {
-                    preserveLastOnUpdate: Boolean(editingJob?.delivery?.channel),
-                  })
-                : undefined,
-            to: form.deliveryTo.trim() || undefined,
-            accountId:
-              selectedDeliveryMode === "announce" ? form.deliveryAccountId.trim() : undefined,
-            bestEffort: form.deliveryBestEffort,
-          }
-        : selectedDeliveryMode === "none"
-          ? ({ mode: "none" } as const)
-          : undefined;
+      selectedDeliveryMode === "bluehouse"
+        ? { mode: selectedDeliveryMode, to: form.deliveryTo.trim() || "agent:main:main" }
+        : selectedDeliveryMode && selectedDeliveryMode !== "none"
+          ? {
+              mode: selectedDeliveryMode,
+              channel:
+                selectedDeliveryMode === "announce"
+                  ? normalizePersistedDeliveryChannel(form.deliveryChannel, {
+                      preserveLastOnUpdate: Boolean(editingJob?.delivery?.channel),
+                    })
+                  : undefined,
+              to: form.deliveryTo.trim() || undefined,
+              accountId:
+                selectedDeliveryMode === "announce" ? form.deliveryAccountId.trim() : undefined,
+              bestEffort: form.deliveryBestEffort,
+            }
+          : selectedDeliveryMode === "none"
+            ? ({ mode: "none" } as const)
+            : undefined;
     const failureAlert = buildFailureAlert(
       form,
       editingJob?.failureAlert && typeof editingJob.failureAlert === "object"

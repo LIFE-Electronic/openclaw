@@ -1264,10 +1264,20 @@ jobs:
         with:
           install-bun: "false"
 
+      - name: Ensure fork shrinkwrap comparison base
+        if: github.repository == 'LIFE-Electronic/openclaw' && github.event_name != 'workflow_dispatch' && matrix.task == 'guards'
+        uses: ./.github/actions/ensure-base-commit
+        with:
+          base-sha: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          fetch-ref: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.base.ref }}
+
       - name: Run check shard
         env:
           OPENCLAW_LOCAL_CHECK: "0"
           TASK: ${{ matrix.task }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1277,7 +1287,14 @@ jobs:
               pnpm tool-display:check
               pnpm check:host-env-policy:swift
               pnpm dup:check:coverage
-              pnpm deps:shrinkwrap:check
+              # This backend fork does not republish unchanged upstream plugins.
+              # Keep the root check and validate any changed dependency inputs.
+              if [ "$CI_REPOSITORY" = "LIFE-Electronic/openclaw" ] && [ "$CI_EVENT_NAME" != "workflow_dispatch" ]; then
+                pnpm deps:shrinkwrap:root:check
+                node scripts/generate-npm-shrinkwrap.mjs --check --changed --base "$CI_BASE_SHA" --head HEAD
+              else
+                pnpm deps:shrinkwrap:check
+              fi
               pnpm deps:patches:check
               pnpm lint:webhook:no-low-level-body-read
               pnpm lint:auth:no-pairing-store-group
@@ -1490,7 +1507,8 @@ jobs:
     permissions:
       contents: read
     needs: [preflight, pnpm-store-warmup]
-    if: needs.preflight.outputs.run_check_docs == 'true'
+    # Publishing upstream docs is outside this backend fork's automatic gate.
+    if: needs.preflight.outputs.run_check_docs == 'true' && (github.repository != 'LIFE-Electronic/openclaw' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 20
     steps:

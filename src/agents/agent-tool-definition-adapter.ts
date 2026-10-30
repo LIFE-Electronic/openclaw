@@ -326,6 +326,8 @@ export function toToolDefinitions(
       label: tool.label ?? name,
       description: tool.description ?? "",
       parameters: tool.parameters,
+      // Preserve tool-owned normalization and repair feedback before validation.
+      prepareArguments: tool.prepareArguments,
       execute: async (...args: ToolExecuteArgs): Promise<AgentToolResult<unknown>> => {
         const { toolCallId, params, onUpdate, signal } = splitToolExecuteArgs(args);
         let executeParams = params;

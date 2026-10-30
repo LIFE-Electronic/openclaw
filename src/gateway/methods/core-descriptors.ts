@@ -145,6 +145,7 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "sessions.reset", scope: "operator.admin" },
   { name: "sessions.delete", scope: "operator.admin" },
   { name: "sessions.compact", scope: "operator.admin" },
+  { name: "sessions.compaction.status", scope: "operator.admin" },
   { name: "last-heartbeat", scope: "operator.read" },
   { name: "set-heartbeats", scope: "operator.admin" },
   { name: "wake", scope: "operator.write" },
@@ -211,6 +212,10 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "nativeHook.invoke", scope: "operator.admin", advertise: false },
   { name: "web.login.start", scope: "operator.admin", advertise: false },
   { name: "web.login.wait", scope: "operator.admin", advertise: false },
+  { name: "wolper.deliveries.pending", scope: "operator.read" },
+  { name: "wolper.deliveries.status", scope: "operator.read" },
+  { name: "wolper.deliveries.ack", scope: "operator.admin" },
+  { name: "wolper.messages.copy", scope: "operator.admin" },
 ] as const;
 
 const CORE_GATEWAY_METHOD_SPEC_BY_NAME: ReadonlyMap<string, CoreGatewayMethodSpec> = new Map(

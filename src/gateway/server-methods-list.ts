@@ -34,6 +34,7 @@ export const GATEWAY_EVENTS = [
   "agent",
   "chat",
   "session.message",
+  "wolper.message.copied",
   "session.operation",
   "session.tool",
   "sessions.changed",

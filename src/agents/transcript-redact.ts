@@ -6,6 +6,7 @@ import {
   redactSensitiveText,
 } from "../logging/redact.js";
 import type { AgentMessage } from "./runtime/index.js";
+import { preserveBackgroundTranscriptIdentity } from "./wolper-background-identity.js";
 
 function resolveTranscriptRedactPatterns(patterns?: string[]) {
   return patterns && patterns.length > 0 ? [...patterns, ...getDefaultRedactPatterns()] : undefined;
@@ -104,5 +105,8 @@ export function redactTranscriptMessage(message: AgentMessage, cfg?: OpenClawCon
   if (cfg?.logging?.redactSensitive === "off") {
     return message;
   }
-  return redactTranscriptStructuredValue(message, cfg) as AgentMessage;
+  return preserveBackgroundTranscriptIdentity(
+    message,
+    redactTranscriptStructuredValue(message, cfg) as AgentMessage,
+  );
 }

@@ -2,6 +2,7 @@ import {
   formatGeneratedAttachmentLines,
   type AgentGeneratedAttachment,
 } from "./generated-attachments.js";
+import type { MediaIdentity } from "./generated-media-identity.js";
 import {
   AGENT_INTERNAL_EVENT_TYPE_TASK_COMPLETION,
   type AgentInternalEventSource,
@@ -26,6 +27,8 @@ type AgentTaskCompletionInternalEvent = {
   result: string;
   attachments?: AgentGeneratedAttachment[];
   mediaUrls?: string[];
+  /** Captured before waking the completion agent; never inferred from its prose. */
+  mediaIdentities?: MediaIdentity[];
   statsLine?: string;
   replyInstruction: string;
 };

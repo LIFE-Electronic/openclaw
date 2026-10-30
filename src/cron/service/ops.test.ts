@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import * as detachedTaskRuntime from "../../tasks/detached-task-runtime.js";
-import { findTaskByRunId, resetTaskRegistryForTests } from "../../tasks/task-registry.js";
+import {
+  findTaskByRunId,
+  listTaskRecords,
+  resetTaskRegistryForTests,
+} from "../../tasks/task-registry.js";
 import { formatTaskStatusDetail } from "../../tasks/task-status.js";
 import { setupCronServiceSuite, writeCronStoreSnapshot } from "../service.test-harness.js";
 import { loadCronStore } from "../store.js";
@@ -135,7 +139,10 @@ function expectTaskRun(params: {
   sourceId: string;
   progressSummary?: string;
 }) {
-  const task = findTaskByRunId(params.runId);
+  const matches = listTaskRecords().filter((task) => task.runId?.startsWith(`${params.runId}:`));
+  expect(matches).toHaveLength(1);
+  const task = matches[0];
+  expect(task?.runId).toMatch(new RegExp(`^${params.runId}:[0-9a-f-]{36}$`));
   expect(task?.runtime).toBe(params.runtime);
   expect(task?.status).toBe(params.status);
   expect(task?.sourceId).toBe(params.sourceId);
@@ -587,7 +594,8 @@ describe("cron service ops seam coverage", () => {
         expect(state.deps.runIsolatedAgentJob).toHaveBeenCalledTimes(1);
       });
 
-      const task = findTaskByRunId(`cron:isolated-timeout:${now}`);
+      const task = listTaskRecords().find((item) => item.sourceId === "isolated-timeout");
+      expect(task?.runId).toMatch(new RegExp(`^cron:isolated-timeout:${now}:[0-9a-f-]{36}$`));
       if (!task) {
         throw new Error("expected active manual cron task ledger record");
       }

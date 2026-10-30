@@ -54,6 +54,7 @@ export type HeartbeatWakeRequest = {
   agentId?: string;
   sessionKey?: string;
   heartbeat?: HeartbeatWakeOverride;
+  backgroundExecution?: import("./wolper-background.js").BackgroundExecution;
 };
 
 export type HeartbeatWakeHandler = (opts: HeartbeatWakeRequest) => Promise<HeartbeatRunResult>;
@@ -78,6 +79,7 @@ type PendingWakeReason = {
   agentId?: string;
   sessionKey?: string;
   heartbeat?: HeartbeatWakeOverride;
+  backgroundExecution?: import("./wolper-background.js").BackgroundExecution;
 };
 
 let handler: HeartbeatWakeHandler | null = null;
@@ -142,6 +144,7 @@ function queuePendingWakeReason(params: {
   agentId?: string;
   sessionKey?: string;
   heartbeat?: HeartbeatWakeOverride;
+  backgroundExecution?: import("./wolper-background.js").BackgroundExecution;
 }) {
   const requestedAt = params.requestedAt ?? Date.now();
   const normalizedReason = normalizeWakeReason(params.reason);
@@ -164,6 +167,7 @@ function queuePendingWakeReason(params: {
     agentId: normalizedAgentId,
     sessionKey: normalizedSessionKey,
     heartbeat: params.heartbeat,
+    backgroundExecution: params.backgroundExecution,
   };
   const previous = pendingWakes.get(wakeTargetKey);
   if (!previous) {
@@ -231,6 +235,7 @@ function schedule(coalesceMs: number, kind: WakeTimerKind = "normal") {
           ...(pendingWake.agentId ? { agentId: pendingWake.agentId } : {}),
           ...(pendingWake.sessionKey ? { sessionKey: pendingWake.sessionKey } : {}),
           ...(pendingWake.heartbeat ? { heartbeat: pendingWake.heartbeat } : {}),
+          backgroundExecution: pendingWake.backgroundExecution,
         };
         const res = await active(wakeOpts);
         if (res.status === "skipped" && isRetryableHeartbeatBusySkipReason(res.reason)) {
@@ -242,6 +247,7 @@ function schedule(coalesceMs: number, kind: WakeTimerKind = "normal") {
             agentId: pendingWake.agentId,
             sessionKey: pendingWake.sessionKey,
             heartbeat: pendingWake.heartbeat,
+            backgroundExecution: pendingWake.backgroundExecution,
           });
           schedule(DEFAULT_RETRY_MS, "retry");
         }
@@ -256,6 +262,7 @@ function schedule(coalesceMs: number, kind: WakeTimerKind = "normal") {
           agentId: pendingWake.agentId,
           sessionKey: pendingWake.sessionKey,
           heartbeat: pendingWake.heartbeat,
+          backgroundExecution: pendingWake.backgroundExecution,
         });
       }
       schedule(DEFAULT_RETRY_MS, "retry");
@@ -319,6 +326,7 @@ export function requestHeartbeat(opts: {
   agentId?: string;
   sessionKey?: string;
   heartbeat?: HeartbeatWakeOverride;
+  backgroundExecution?: import("./wolper-background.js").BackgroundExecution;
 }) {
   queuePendingWakeReason({
     source: opts.source,
@@ -327,6 +335,7 @@ export function requestHeartbeat(opts: {
     agentId: opts.agentId,
     sessionKey: opts.sessionKey,
     heartbeat: opts.heartbeat,
+    backgroundExecution: opts.backgroundExecution,
   });
   schedule(opts.coalesceMs ?? DEFAULT_COALESCE_MS, "normal");
 }

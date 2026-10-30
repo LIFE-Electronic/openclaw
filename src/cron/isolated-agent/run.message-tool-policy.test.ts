@@ -322,6 +322,10 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
     const resolvedDelivery = overrides.resolvedDelivery ?? {};
 
     return createCronPromptExecutor({
+      execution: {
+        runId: "cron-execution",
+        origin: { trigger: "cron", is_heartbeat: false, cron_job_id: "job" },
+      },
       cfg: {},
       cfgWithAgentDefaults: {},
       job: makeMessageToolPolicyJob(),
@@ -723,14 +727,20 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
     resolveCronSessionMock.mockReturnValue(cronSession);
     const { getAgentRunContext, registerAgentRunContext } =
       await import("../../infra/agent-events.js");
-    registerAgentRunContext("test-session-id", {
+    registerAgentRunContext("cron-execution", {
       sessionKey: "agent:default:cron:message-tool-policy",
       verboseLevel: "off",
     });
 
-    await runCronIsolatedAgentTurn(makeParams());
+    await runCronIsolatedAgentTurn({
+      ...makeParams(),
+      execution: {
+        runId: "cron-execution",
+        origin: { trigger: "cron", is_heartbeat: false, cron_job_id: "job" },
+      },
+    });
 
-    expect(getAgentRunContext("test-session-id")).toBeUndefined();
+    expect(getAgentRunContext("cron-execution")).toBeUndefined();
     expect(cronSession.store).toBeUndefined();
   });
 

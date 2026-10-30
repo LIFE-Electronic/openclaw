@@ -49,6 +49,7 @@ enum CronDeliveryMode: String, CaseIterable, Identifiable, Codable {
     case none
     case announce
     case webhook
+    case bluehouse
 
     var id: String {
         self.rawValue

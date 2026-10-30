@@ -458,6 +458,19 @@ describe("gateway broadcaster", () => {
     ]);
   });
 
+  it("limits native copy content to operator session readers", () => {
+    const { pairingSocket, nodeSocket, readSocket, writeSocket, adminSocket, clients } =
+      makeScopedBroadcastClients();
+    createGatewayBroadcaster({ clients }).broadcast("wolper.message.copied", {
+      message: { content: "Private reminder" },
+    });
+    expect(pairingSocket.send).not.toHaveBeenCalled();
+    expect(nodeSocket.send).not.toHaveBeenCalled();
+    expect(readSocket.send).toHaveBeenCalledTimes(1);
+    expect(writeSocket.send).toHaveBeenCalledTimes(1);
+    expect(adminSocket.send).toHaveBeenCalledTimes(1);
+  });
+
   it("defaults unknown events to deny and classifies remaining gateway broadcast events", () => {
     const { pairingSocket, nodeSocket, readSocket, writeSocket, adminSocket, clients } =
       makeScopedBroadcastClients();

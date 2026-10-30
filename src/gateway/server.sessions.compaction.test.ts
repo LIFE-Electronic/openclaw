@@ -593,3 +593,60 @@ test("sessions.patch preserves nested model ids under provider overrides", async
     });
   });
 });
+
+test("sessions.compact idleOnly never interrupts an embedded user turn", async () => {
+  const { dir } = await createSessionStoreDir();
+  await fs.writeFile(
+    path.join(dir, "idle-safe.jsonl"),
+    `${JSON.stringify({ role: "user", content: "hello" })}\n`,
+    "utf-8",
+  );
+  await writeSessionStore({ entries: { main: sessionStoreEntry("idle-safe") } });
+  const { ws } = await openClient();
+  embeddedRunMock.activeIds.add("idle-safe");
+  const busy = await rpcReq<{ reason: string }>(ws, "sessions.compact", {
+    key: "main",
+    idleOnly: true,
+  });
+  expect(busy.payload?.reason).toBe("busy");
+  expect(embeddedRunMock.activeIds.has("idle-safe")).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).not.toHaveBeenCalled();
+  embeddedRunMock.activeIds.delete("idle-safe");
+  embeddedRunMock.compactEmbeddedAgentSession.mockResolvedValueOnce({
+    ok: true,
+    compacted: false,
+    reason: "nothing to compact",
+  });
+  const result = await rpcReq<{ compacted: boolean }>(ws, "sessions.compact", {
+    key: "main",
+    idleOnly: true,
+  });
+  expect(result.ok).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ waitForCompletion: true }),
+  );
+});
+
+test("backend manual compaction waits for completion and exposes its coverage timestamp", async () => {
+  const { dir } = await createSessionStoreDir();
+  await fs.writeFile(
+    path.join(dir, "manual.jsonl"),
+    JSON.stringify({ role: "user", content: "hello" }) + "\n",
+  );
+  await writeSessionStore({ entries: { main: sessionStoreEntry("manual") } });
+  const { ws } = await openClient({
+    client: { id: "cli", version: "test", platform: "test", mode: "backend" },
+  });
+  const before = Date.now();
+  const result = await rpcReq(ws, "sessions.compact", { key: "main" });
+  expect(result.ok).toBe(true);
+  expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ waitForCompletion: true }),
+  );
+  const status = await rpcReq<{ lastCompactionAt: number }>(ws, "sessions.compaction.status", {
+    key: "main",
+  });
+  expect(status.ok, JSON.stringify(status)).toBe(true);
+  expect(status.payload?.lastCompactionAt).toBeGreaterThanOrEqual(before);
+  ws.close();
+});

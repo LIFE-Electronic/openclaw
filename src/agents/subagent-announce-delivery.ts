@@ -27,7 +27,6 @@ import {
   normalizeMessageChannel,
 } from "../utils/message-channel.js";
 import {
-  collectMessagingToolDeliveredMediaUrls,
   getAgentCommandDeliveryFailure,
   getGatewayAgentResult,
   hasDeliveredExpectedMedia,
@@ -37,6 +36,12 @@ import {
 import type { EmbeddedAgentQueueMessageOptions } from "./embedded-agent-runner/run-state.js";
 import type { EmbeddedAgentQueueMessageOutcome } from "./embedded-agent-runner/runs.js";
 import { mediaUrlsFromGeneratedAttachments } from "./generated-attachments.js";
+import {
+  hasDeliveredWebchatMedia,
+  hasDeliveredGeneratedMedia,
+  unmatchedGeneratedMedia,
+  type MediaIdentity,
+} from "./generated-media-identity.js";
 import type { AgentInternalEvent } from "./internal-events.js";
 import { isSessionWriteLockTimeoutError } from "./session-write-lock-error.js";
 import {
@@ -672,6 +677,25 @@ function requiresAgentMediatedCompletionDelivery(params: {
   return params.expectsCompletionMessage && isAgentMediatedCompletionSourceTool(params.sourceTool);
 }
 
+/** Pin native media completions to their originating UI, including stale external routes. */
+function isWebchatMediaCompletion(params: {
+  expectsCompletionMessage: boolean;
+  sourceTool?: string;
+  completionDirectOrigin?: DeliveryContext;
+  directOrigin?: DeliveryContext;
+  requesterSessionOrigin?: DeliveryContext;
+}): boolean {
+  const channel =
+    params.completionDirectOrigin?.channel ??
+    params.directOrigin?.channel ??
+    params.requesterSessionOrigin?.channel;
+  return (
+    params.expectsCompletionMessage &&
+    ["image_generate", "video_generate", "music_generate"].includes(params.sourceTool ?? "") &&
+    isInternalMessageChannel(channel)
+  );
+}
+
 function collectExpectedMediaFromInternalEvents(
   events: AgentInternalEvent[] | undefined,
 ): string[] {
@@ -708,17 +732,13 @@ function hasGatewayAgentDeliveredExpectedMedia(
 function hasGatewayAgentMessagingToolDeliveredExpectedMedia(
   response: unknown,
   expectedMediaUrls: readonly string[],
+  expectedIdentities: readonly MediaIdentity[] = [],
 ): boolean {
-  const expected = uniqueStrings(normalizeStringEntries(expectedMediaUrls));
-  if (expected.length === 0) {
-    return true;
-  }
-  const result = getGatewayAgentResult(response);
-  if (!result) {
-    return false;
-  }
-  const delivered = new Set(collectMessagingToolDeliveredMediaUrls(result));
-  return expected.every((url) => delivered.has(url));
+  return hasDeliveredGeneratedMedia(
+    expectedMediaUrls,
+    expectedIdentities,
+    getGatewayAgentResult(response),
+  );
 }
 
 function getGatewayAgentCommandDeliveryFailure(response: unknown): string | undefined {
@@ -956,14 +976,15 @@ async function deliverTextCompletionDirect(params: {
 function resolveGeneratedMediaDirectFallbackUrls(params: {
   expectedMediaUrls: readonly string[];
   announceResponse?: unknown;
+  expectedIdentities?: readonly MediaIdentity[];
 }): string[] {
   const expected = uniqueStrings(normalizeStringEntries(params.expectedMediaUrls));
   const result = getGatewayAgentResult(params.announceResponse);
   if (!result) {
     return expected;
   }
-  const delivered = new Set(collectMessagingToolDeliveredMediaUrls(result));
-  return expected.filter((url) => !delivered.has(url));
+  // One shared batch assignment prevents one send satisfying two outputs.
+  return unmatchedGeneratedMedia(expected, params.expectedIdentities ?? [], result);
 }
 
 function stripNonDeliverableChannelForCompletionOrigin(
@@ -1024,9 +1045,13 @@ async function sendSubagentAnnounceDirectly(params: {
       directOrigin,
       requesterSessionOrigin,
     );
-    const effectiveDirectOrigin = params.expectsCompletionMessage
-      ? mergeDeliveryContext(externalCompletionDirectOrigin, completionExternalFallbackOrigin)
-      : directOrigin;
+    const webchatMediaCompletion = isWebchatMediaCompletion(params);
+    // Never merge an internal request into a session's historical Telegram target.
+    const effectiveDirectOrigin = webchatMediaCompletion
+      ? { channel: INTERNAL_MESSAGE_CHANNEL }
+      : params.expectsCompletionMessage
+        ? mergeDeliveryContext(externalCompletionDirectOrigin, completionExternalFallbackOrigin)
+        : directOrigin;
     const sessionOnlyOrigin = effectiveDirectOrigin?.channel
       ? effectiveDirectOrigin
       : requesterSessionOrigin;
@@ -1072,9 +1097,10 @@ async function sendSubagentAnnounceDirectly(params: {
       deliveryTarget.deliver &&
       isDirectMessageDeliveryTarget(deliveryTarget, canonicalRequesterSessionKey);
     const requiresMessageToolDelivery =
-      completionRouteRequiresMessageToolDelivery ||
-      (agentMediatedCompletion && expectedMediaUrls.length > 0) ||
-      subagentDirectMessageCompletionRequiresMessageTool;
+      !webchatMediaCompletion &&
+      (completionRouteRequiresMessageToolDelivery ||
+        (agentMediatedCompletion && expectedMediaUrls.length > 0) ||
+        subagentDirectMessageCompletionRequiresMessageTool);
     const requesterActivity = resolveRequesterSessionActivity(canonicalRequesterSessionKey);
     if (
       params.expectsCompletionMessage &&
@@ -1097,6 +1123,8 @@ async function sendSubagentAnnounceDirectly(params: {
       const missingMediaUrls = resolveGeneratedMediaDirectFallbackUrls({
         expectedMediaUrls,
         announceResponse,
+        expectedIdentities:
+          params.internalEvents?.flatMap((event) => event.mediaIdentities ?? []) ?? [],
       });
       return await deliverGeneratedMediaCompletionDirect({
         cfg,
@@ -1108,9 +1136,11 @@ async function sendSubagentAnnounceDirectly(params: {
         sourceTool: params.sourceTool,
       });
     };
-    const completionSourceReplyDeliveryMode = requiresMessageToolDelivery
-      ? "message_tool_only"
-      : undefined;
+    const completionSourceReplyDeliveryMode = webchatMediaCompletion
+      ? "automatic"
+      : requiresMessageToolDelivery
+        ? "message_tool_only"
+        : undefined;
     const shouldDeliverAgentFinal = deliveryTarget.deliver && !requiresMessageToolDelivery;
     const requesterQueueSettings = resolveQueueSettings({
       cfg,
@@ -1124,6 +1154,8 @@ async function sendSubagentAnnounceDirectly(params: {
     });
     if (
       params.expectsCompletionMessage &&
+      // Steering only acknowledges queued input, not a visible media reply.
+      !webchatMediaCompletion &&
       requesterActivity.sessionId &&
       requesterActivity.isActive
     ) {
@@ -1195,7 +1227,10 @@ async function sendSubagentAnnounceDirectly(params: {
       message: params.triggerMessage,
       deliver: shouldDeliverAgentFinal,
       bestEffortDeliver: params.bestEffortDeliver,
-      internalEvents: params.internalEvents,
+      // Media hashes stay local because Gateway rejects fields outside its event schema.
+      internalEvents: params.internalEvents?.map(
+        ({ mediaIdentities: _mediaIdentities, ...event }) => event,
+      ),
       channel: shouldDeliverAgentFinal ? deliveryTarget.channel : sessionOnlyOriginChannel,
       accountId: shouldDeliverAgentFinal
         ? deliveryTarget.accountId
@@ -1274,9 +1309,10 @@ async function sendSubagentAnnounceDirectly(params: {
     const directAnnounceStillPending = isGatewayAgentRunPending(directAnnounceResponse);
     if (directAnnounceStillPending) {
       if (
-        params.expectsCompletionMessage &&
-        expectedMediaUrls.length === 0 &&
-        !requiresMessageToolDelivery
+        webchatMediaCompletion ||
+        (params.expectsCompletionMessage &&
+          expectedMediaUrls.length === 0 &&
+          !requiresMessageToolDelivery)
       ) {
         return {
           delivered: false,
@@ -1291,18 +1327,29 @@ async function sendSubagentAnnounceDirectly(params: {
     }
 
     const directDeliveryFailure =
-      shouldDeliverAgentFinal || requiresMessageToolDelivery
+      webchatMediaCompletion || shouldDeliverAgentFinal || requiresMessageToolDelivery
         ? getGatewayAgentCommandDeliveryFailure(directAnnounceResponse)
         : undefined;
     if (
       agentMediatedCompletion &&
       expectedMediaUrls.length > 0 &&
-      !(requiresMessageToolDelivery
-        ? hasGatewayAgentMessagingToolDeliveredExpectedMedia(
-            directAnnounceResponse,
+      !(webchatMediaCompletion
+        ? await hasDeliveredWebchatMedia(
             expectedMediaUrls,
+            params.internalEvents?.flatMap((event) =>
+              event.status === "ok" ? (event.mediaIdentities ?? []) : [],
+            ) ?? [],
+            getGatewayAgentResult(directAnnounceResponse),
           )
-        : hasGatewayAgentDeliveredExpectedMedia(directAnnounceResponse, expectedMediaUrls))
+        : requiresMessageToolDelivery
+          ? hasGatewayAgentMessagingToolDeliveredExpectedMedia(
+              directAnnounceResponse,
+              expectedMediaUrls,
+              params.internalEvents?.flatMap((event) =>
+                event.status === "ok" ? (event.mediaIdentities ?? []) : [],
+              ) ?? [],
+            )
+          : hasGatewayAgentDeliveredExpectedMedia(directAnnounceResponse, expectedMediaUrls))
     ) {
       const generatedMediaDelivery = await tryGeneratedMediaDirectDelivery(directAnnounceResponse);
       if (generatedMediaDelivery) {
@@ -1312,6 +1359,13 @@ async function sendSubagentAnnounceDirectly(params: {
         delivered: false,
         path: "direct",
         error: "completion agent did not deliver generated media",
+      };
+    }
+    if (webchatMediaCompletion && !hasVisibleGatewayAgentPayload(directAnnounceResponse)) {
+      return {
+        delivered: false,
+        path: "direct",
+        error: "Webchat completion did not produce a visible reply",
       };
     }
     if (directDeliveryFailure) {
@@ -1428,15 +1482,19 @@ export async function deliverSubagentAnnouncement(params: {
   return await runSubagentAnnounceDispatch({
     expectsCompletionMessage: params.expectsCompletionMessage,
     signal: params.signal,
+    // Failed Webchat media verification cannot be upgraded to success by a
+    // fallback that only queues the same instruction into an active turn.
     steer: async () =>
-      await maybeSteerSubagentAnnounce({
-        deliveryTimeoutMs: resolveSubagentAnnounceTimeoutMs(
-          subagentAnnounceDeliveryDeps.getRuntimeConfig(),
-        ),
-        requesterSessionKey: params.requesterSessionKey,
-        steerMessage: params.steerMessage,
-        signal: params.signal,
-      }),
+      isWebchatMediaCompletion(params)
+        ? { status: "none" as const }
+        : await maybeSteerSubagentAnnounce({
+            deliveryTimeoutMs: resolveSubagentAnnounceTimeoutMs(
+              subagentAnnounceDeliveryDeps.getRuntimeConfig(),
+            ),
+            requesterSessionKey: params.requesterSessionKey,
+            steerMessage: params.steerMessage,
+            signal: params.signal,
+          }),
     direct: async () =>
       await sendSubagentAnnounceDirectly({
         requesterSessionKey: params.requesterSessionKey,

@@ -20,7 +20,7 @@ export type CronWakeMode = "next-heartbeat" | "now";
 
 export type CronMessageChannel = ChannelId;
 
-export type CronDeliveryMode = "none" | "announce" | "webhook";
+export type CronDeliveryMode = "none" | "announce" | "webhook" | "bluehouse";
 
 export type CronDelivery = {
   mode: CronDeliveryMode;
@@ -123,6 +123,8 @@ export type CronRunDiagnostics = {
 };
 
 export type CronRunOutcome = {
+  runId?: string;
+  bluehouseDestination?: string;
   status: CronRunStatus;
   error?: string;
   /** Optional classifier for execution errors to guide fallback behavior. */

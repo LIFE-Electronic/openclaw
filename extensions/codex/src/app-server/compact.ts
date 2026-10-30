@@ -21,7 +21,8 @@ export async function maybeCompactCodexAppServerSession(
   warnIfIgnoringOpenClawCompactionOverrides(params);
   // Codex owns automatic context-pressure compaction for Codex runtime sessions.
   // This entry point starts native Codex compaction for the bound thread and
-  // returns immediately; Codex applies the compaction inside its app-server.
+  // normally returns immediately. Wolper maintenance waits for completion so
+  // queued messages cannot overtake an acknowledged but unfinished compaction.
   return compactCodexNativeThread(params, options);
 }
 
@@ -184,15 +185,36 @@ async function compactCodexNativeThread(
     params.agentDir,
     params.config,
   );
+  let cleanup = () => {};
+  let completion: Promise<boolean> | undefined;
+  if (params.waitForCompletion) {
+    completion = new Promise<boolean>((resolve) => {
+      const remove = client.addNotificationHandler((event) => {
+        if (event.method === "thread/compacted" && event.params.threadId === binding.threadId)
+          resolve(true);
+      });
+      const removeClose = client.addCloseHandler?.(() => resolve(false));
+      // A local timeout is not a native terminal event. Retain the listener for
+      // slow completions; a disconnected app-server leaves an uncertain receipt.
+      cleanup = () => {
+        remove();
+        removeClose?.();
+      };
+    });
+  }
+  let completed = false;
   try {
     await client.request("thread/compact/start", {
       threadId: binding.threadId,
     });
+    if (completion) completed = await completion;
+    cleanup();
     embeddedAgentLog.info("started codex app-server compaction", {
       sessionId: params.sessionId,
       threadId: binding.threadId,
     });
   } catch (error) {
+    cleanup();
     if (isCodexThreadNotFoundError(error)) {
       return failedCodexThreadBindingCompactionResult(params, {
         threadId: binding.threadId,
@@ -216,11 +238,11 @@ async function compactCodexNativeThread(
     backend: "codex-app-server",
     threadId: binding.threadId,
     signal: "thread/compact/start",
-    pending: true,
+    pending: !completed,
   };
   return {
     ok: true,
-    compacted: false,
+    compacted: completed,
     result: {
       summary: "",
       firstKeptEntryId: "",

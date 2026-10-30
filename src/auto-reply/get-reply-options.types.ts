@@ -47,6 +47,7 @@ export type PartialReplyPayload = Pick<ReplyPayload, "text" | "mediaUrls"> & {
 };
 
 export type GetReplyOptions = {
+  backgroundExecution?: import("../infra/wolper-background.js").BackgroundExecution;
   /** Override run id for agent events (defaults to random UUID). */
   runId?: string;
   /** Abort signal for the underlying agent run. */

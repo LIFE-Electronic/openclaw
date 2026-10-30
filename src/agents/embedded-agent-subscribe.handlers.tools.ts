@@ -53,6 +53,7 @@ import {
 } from "./embedded-agent-subscribe.tools.js";
 import { inferToolMetaFromArgs } from "./embedded-agent-utils.js";
 import { parseExecApprovalResultText } from "./exec-approval-result.js";
+import { internalSendMediaIdentities } from "./generated-media-identity.js";
 import type { AgentEvent } from "./runtime/index.js";
 import { buildToolMutationState, isSameToolMutationAction } from "./tool-mutation.js";
 import { normalizeToolName } from "./tool-policy.js";
@@ -1240,8 +1241,18 @@ export async function handleToolExecutionEnd(
   }
 
   // Commit messaging tool evidence on success, discard on error.
+  const deliveryDetails = readToolResultDetailsRecord(result);
+  const sendCommitted =
+    !isToolError &&
+    deliveryDetails?.dryRun !== true &&
+    deliveryDetails?.deliveryStatus !== "dry_run";
+  const mediaIdentities = sendCommitted ? internalSendMediaIdentities(result) : [];
   const pendingText = ctx.state.pendingMessagingTexts.get(toolCallId);
-  const pendingTarget = ctx.state.pendingMessagingTargets.get(toolCallId);
+  const pendingTarget =
+    ctx.state.pendingMessagingTargets.get(toolCallId) ??
+    (mediaIdentities.length
+      ? { tool: toolName, provider: "webchat", to: "current-run" }
+      : undefined);
   const pendingMediaUrls = ctx.state.pendingMessagingMediaUrls.get(toolCallId) ?? [];
   const startArgs =
     startData?.args && typeof startData.args === "object"
@@ -1251,12 +1262,12 @@ export async function handleToolExecutionEnd(
     pendingMediaUrls.length > 0 ||
     (isMessagingTool(toolName) && isMessagingToolSendAction(toolName, startArgs));
   const committedMediaUrls =
-    !isToolError && isMessagingSend
+    sendCommitted && isMessagingSend
       ? [...pendingMediaUrls, ...collectMessagingMediaUrlsFromToolResult(result)]
       : [];
   if (pendingText) {
     ctx.state.pendingMessagingTexts.delete(toolCallId);
-    if (!isToolError) {
+    if (sendCommitted) {
       ctx.state.messagingToolSentTexts.push(pendingText);
       ctx.state.messagingToolSentTextsNormalized.push(normalizeTextForComparison(pendingText));
       ctx.log.debug(`Committed messaging text: tool=${toolName} len=${pendingText.length}`);
@@ -1265,9 +1276,11 @@ export async function handleToolExecutionEnd(
   }
   if (pendingTarget) {
     ctx.state.pendingMessagingTargets.delete(toolCallId);
-    if (!isToolError) {
+    if (sendCommitted) {
       ctx.state.messagingToolSentTargets.push({
         ...pendingTarget,
+        mediaReceiptId: toolCallId,
+        ...(mediaIdentities.length ? { mediaIdentities } : {}),
         ...(pendingText ? { text: pendingText } : {}),
         ...(committedMediaUrls.length > 0 ? { mediaUrls: committedMediaUrls.slice() } : {}),
       });
@@ -1275,7 +1288,7 @@ export async function handleToolExecutionEnd(
     }
   }
   ctx.state.pendingMessagingMediaUrls.delete(toolCallId);
-  if (!isToolError && isMessagingSend) {
+  if (sendCommitted && isMessagingSend) {
     if (committedMediaUrls.length > 0) {
       ctx.state.messagingToolSentMediaUrls.push(...committedMediaUrls);
       ctx.trimMessagingToolSent();

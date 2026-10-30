@@ -41,7 +41,12 @@ async function ensureSessionHeader(params: {
 }
 
 export type SessionTranscriptAppendResult =
-  | { ok: true; sessionFile: string; messageId: string }
+  | {
+      ok: true;
+      sessionFile: string;
+      messageId: string;
+      message?: SessionTranscriptAssistantMessage;
+    }
   | { ok: false; reason: string };
 
 export type SessionTranscriptUpdateMode = "inline" | "file-only" | "none";
@@ -261,6 +266,10 @@ export async function appendExactAssistantMessageToSessionTranscript(params: {
   storePath?: string;
   updateMode?: SessionTranscriptUpdateMode;
   config?: OpenClawConfig;
+  /** Native copy receipts must expose the redacted object actually stored on disk. */
+  returnMessage?: boolean;
+  /** Recheck session admission under the transcript lock, after replay detection. */
+  beforeAppend?: () => void;
 }): Promise<SessionTranscriptAppendResult> {
   const sessionKey = params.sessionKey.trim();
   if (!sessionKey) {
@@ -330,11 +339,26 @@ export async function appendExactAssistantMessageToSessionTranscript(params: {
             message,
             ...(explicitIdempotencyKey ? { idempotencyLookup: "scan" } : {}),
             config: params.config,
+            ...(params.beforeAppend
+              ? {
+                  prepareMessageAfterIdempotencyCheck: (value: typeof message) => {
+                    params.beforeAppend?.();
+                    return value;
+                  },
+                }
+              : {}),
           });
         },
       );
       if (!appended) {
-        return { ok: true, sessionFile, messageId };
+        return {
+          ok: true,
+          sessionFile,
+          messageId,
+          ...(params.returnMessage
+            ? { message: appendedMessage as SessionTranscriptAssistantMessage }
+            : {}),
+        };
       }
 
       switch (params.updateMode ?? "inline") {
@@ -352,7 +376,14 @@ export async function appendExactAssistantMessageToSessionTranscript(params: {
         case "none":
           break;
       }
-      return { ok: true, sessionFile, messageId };
+      return {
+        ok: true,
+        sessionFile,
+        messageId,
+        ...(params.returnMessage
+          ? { message: appendedMessage as SessionTranscriptAssistantMessage }
+          : {}),
+      };
     },
   );
 }

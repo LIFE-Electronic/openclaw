@@ -39,6 +39,12 @@ export async function resolveCronDeliveryPreview(params: {
   defaultAgentId?: string;
   job: CronJob;
 }): Promise<CronDeliveryPreview> {
+  if (params.job.delivery?.mode === "bluehouse") {
+    return {
+      label: `bluehouse -> ${params.job.delivery.to}`,
+      detail: "durable backend receipt; waits for user turns",
+    };
+  }
   const plan = resolveCronDeliveryPlan(params.job);
   if (plan.mode === "none" && !hasExplicitCronDeliveryTarget(plan)) {
     return { label: "not requested", detail: "not requested" };

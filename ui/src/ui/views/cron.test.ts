@@ -324,11 +324,13 @@ describe("cron view", () => {
     expect(Array.from(deliveryMode?.options ?? []).map((opt) => opt.value)).toEqual([
       "announce",
       "webhook",
+      "bluehouse",
       "none",
     ]);
     expect(Array.from(deliveryMode?.options ?? []).map((opt) => opt.textContent?.trim())).toEqual([
       "Announce summary (default)",
       "Webhook POST",
+      "BlueHouse",
       "None (internal)",
     ]);
 
@@ -352,11 +354,12 @@ describe("cron view", () => {
     expect(normalizedDeliveryMode?.value).toBe("none");
     expect(Array.from(normalizedDeliveryMode?.options ?? []).map((opt) => opt.value)).toEqual([
       "webhook",
+      "bluehouse",
       "none",
     ]);
     expect(
       Array.from(normalizedDeliveryMode?.options ?? []).map((opt) => opt.textContent?.trim()),
-    ).toEqual(["Webhook POST", "None (internal)"]);
+    ).toEqual(["Webhook POST", "BlueHouse", "None (internal)"]);
     expect(container.querySelector('input[placeholder="https://example.com/cron"]')).toBeNull();
   });
 

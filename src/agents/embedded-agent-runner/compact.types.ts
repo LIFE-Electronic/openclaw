@@ -9,6 +9,8 @@ import type { AgentRuntimePlan } from "../runtime-plan/types.js";
 
 export type CompactEmbeddedAgentSessionParams = {
   sessionId: string;
+  /** Maintenance callers wait for actual harness completion. */
+  waitForCompletion?: boolean;
   runId?: string;
   sessionKey?: string;
   /** Session key used only for runtime policy/sandbox resolution. Defaults to sessionKey. */

@@ -1243,6 +1243,18 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     });
   });
 
+  it("reuses the scheduler identity on replay and separates executions in the same millisecond", async () => {
+    vi.mocked(deliverOutboundPayloads).mockResolvedValue([{ ok: true } as never]);
+    const params = {
+      ...makeBaseParams({ synthesizedText: "Replay-safe cron update." }),
+      executionId: "scheduler-execution-one",
+    };
+    await dispatchCronDelivery(params);
+    await dispatchCronDelivery(params);
+    await dispatchCronDelivery({ ...params, executionId: "scheduler-execution-two" });
+    expect(deliverOutboundPayloads).toHaveBeenCalledTimes(2);
+  });
+
   it("does not cache partial bestEffort delivery replays as delivered", async () => {
     vi.mocked(deliverOutboundPayloads).mockImplementation(async (params) => {
       const failedPayload = Array.isArray(params.payloads) ? params.payloads[0] : undefined;

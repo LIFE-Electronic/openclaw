@@ -594,6 +594,7 @@ export async function createEmbeddedAttemptSessionLockController(params: {
     });
 
   let heldLock: SessionLock | undefined = await acquireLock();
+  let disposed = false;
   const activeWriteLock = new AsyncLocalStorage<ActiveWriteLockState>();
   let fenceFingerprint: SessionFileFingerprint | undefined;
   let fenceSnapshot: SessionFileFenceSnapshot | undefined;
@@ -904,10 +905,16 @@ export async function createEmbeddedAttemptSessionLockController(params: {
     },
     async reacquireAfterPrompt(): Promise<void> {
       await waitForHeldLockDrain();
-      if (takeoverDetected || heldLock) {
+      if (disposed || takeoverDetected || heldLock) {
         return;
       }
       const lock = await acquireLock();
+      // Abort teardown has a bounded settle wait. A provider finalizer can
+      // acquire after dispose returned; never retain that orphaned lock.
+      if (disposed) {
+        await lock.release();
+        return;
+      }
       try {
         heldLock = lock;
         await assertSessionFileFence();
@@ -995,6 +1002,8 @@ export async function createEmbeddedAttemptSessionLockController(params: {
       return takeoverDetected;
     },
     async dispose(): Promise<void> {
+      // Fence pending and future prompt reacquisitions before awaiting drains.
+      disposed = true;
       await disposeHeldLockAfterRetainedIdle();
     },
   };
