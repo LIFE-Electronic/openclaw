@@ -33,7 +33,7 @@ gh pr create --repo LIFE-Electronic/openclaw --base wolper-base/2026.5.28
 
 Wolper image builds must still pin a reviewed full commit SHA. A merge into the
 canonical branch does not update the backend's fork revision or deploy an image
-automatically. The backend's [branch and build guidance](https://github.com/LIFE-Electronic/wolper/blob/feat/postgresql-backend/openclaw-patches/README.md)
+automatically. The backend's [branch and build guidance](https://github.com/LIFE-Electronic/wolper/blob/master/openclaw-patches/README.md)
 describes `OPENCLAW_SOURCE_MODE`, `OPENCLAW_SOURCE_DIR`, and `OPENCLAW_SOURCE_REF`.
 
 ## Background channel copies
