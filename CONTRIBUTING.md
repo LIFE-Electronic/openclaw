@@ -1,5 +1,11 @@
 # Contributing to OpenClaw
 
+For the `LIFE-Electronic/openclaw` fork, start Wolper changes from
+[`wolper-base/2026.5.28`](https://github.com/LIFE-Electronic/openclaw/tree/wolper-base/2026.5.28)
+and target that branch in PRs (`--repo LIFE-Electronic/openclaw --base wolper-base/2026.5.28`).
+It is Wolper's master/integration branch. See [Wolper branch guidance](WOLPER_FORK.md#canonical-wolper-branch)
+before following the upstream contribution guidance below.
+
 Welcome to the lobster tank! 🦞
 
 ## Quick Links
