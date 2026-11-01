@@ -619,7 +619,7 @@ PAYLOAD TYPES (payload.kind):
   { "kind": "agentTurn", "message": "<prompt>", "model": "<optional>", "thinking": "<optional>", "timeoutSeconds": <optional, 0=no timeout> }
 
 DELIVERY (top-level):
-  { "mode": "none|announce|webhook", "channel": "<optional>", "to": "<optional>", "threadId": "<optional>", "bestEffort": <optional-bool> }
+  { "mode": "none|announce|webhook|bluehouse", "channel": "<optional>", "to": "<optional>", "threadId": "<optional>", "bestEffort": <optional-bool> }
   - isolated agentTurn default when omitted: "announce"
   - announce: send to chat channel; isolated/current/session only; optional channel/to
   - threadId: chat thread/topic id
