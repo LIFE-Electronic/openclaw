@@ -52,7 +52,8 @@ const upstream = createServer(async (request, response) => {
         tool_calls: [
           {
             index: 0,
-            id: `read-${activeWake}`,
+            // Some providers normalize tool IDs to alphanumeric characters.
+            id: `read${activeWake}`,
             type: "function",
             function: {
               name: "read",
@@ -66,7 +67,7 @@ const upstream = createServer(async (request, response) => {
       assert.equal(phase, 2, "unexpected extra model round");
       assert(
         body.messages.some(
-          (message) => message.role === "tool" && message.tool_call_id === `read-${activeWake}`,
+          (message) => message.role === "tool" && message.tool_call_id === `read${activeWake}`,
         ),
       );
       delta = { role: "assistant", content: `Verification round ${activeWake} finished.` };
@@ -173,31 +174,34 @@ try {
     OPENCLAW_CONFIG_PATH: configPath,
     OPENCLAW_SKIP_CHANNELS: "1",
   };
-  gateway = spawn(process.execPath, ["/app/openclaw.mjs", "gateway", "run"], {
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  gateway.stdout.on("data", (chunk) => {
-    logs = (logs + chunk).slice(-32000);
-  });
-  gateway.stderr.on("data", (chunk) => {
-    logs = (logs + chunk).slice(-32000);
-  });
-  closed = new Promise((resolve) => gateway.on("exit", resolve));
-  let ready = false;
-  for (let attempt = 0; attempt < 300 && !ready; attempt++) {
-    assert.equal(gateway.exitCode, null, logs);
-    try {
-      ready = (await fetch(`http://127.0.0.1:${gatewayPort}/health`)).ok;
-    } catch {
-      /* Wait for this disposable Gateway. */
-    }
-    if (!ready) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  assert(ready, `Gateway did not become healthy: ${logs}`);
+  // A fresh isolated Gateway per wake avoids the normal 30-second heartbeat
+  // cooldown; the same transcript remains on disk throughout all three cases.
   for (activeWake = 0; activeWake < wakes.length; activeWake++) {
+    logs = "";
+    gateway = spawn(process.execPath, ["/app/openclaw.mjs", "gateway", "run"], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    gateway.stdout.on("data", (chunk) => {
+      logs = (logs + chunk).slice(-32000);
+    });
+    gateway.stderr.on("data", (chunk) => {
+      logs = (logs + chunk).slice(-32000);
+    });
+    closed = new Promise((resolve) => gateway.on("exit", resolve));
+    let ready = false;
+    for (let attempt = 0; attempt < 300 && !ready; attempt++) {
+      assert.equal(gateway.exitCode, null, logs);
+      try {
+        ready = (await fetch(`http://127.0.0.1:${gatewayPort}/health`)).ok;
+      } catch {
+        /* Wait for this disposable Gateway. */
+      }
+      if (!ready) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    assert(ready, `Gateway did not become healthy: ${logs}`);
     phase = 0;
     const response = await fetch(`http://127.0.0.1:${gatewayPort}/hooks/wake`, {
       method: "POST",
@@ -224,6 +228,10 @@ try {
       }
     }
     assert(finished, `Wake did not finish: ${logs}`);
+    gateway.kill("SIGTERM");
+    await closed;
+    gateway = undefined;
+    closed = undefined;
   }
   const userMessages = (await transcript()).filter((message) => message.role === "user");
   assert.equal(userMessages.length, wakes.length);
