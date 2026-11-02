@@ -79,7 +79,16 @@ export function resolveRuntimeContextPromptParts(params: {
       : shouldExtractInternalRuntimeContext
         ? extractInternalRuntimeContext(params.modelPrompt)
         : { text: params.modelPrompt };
-  const modelPromptText = modelPrompt?.text ?? transcriptPrompt ?? extracted.text;
+  const contextOutsideTranscript = transcriptPrompt
+    ? removeLastPromptOccurrence(extracted.text, transcriptPrompt)?.trim()
+    : undefined;
+  // Heartbeats and session starts can persist a label absent from the real input.
+  // Keep that input model-only even when no plugin supplies prompt context.
+  const modelPromptText =
+    modelPrompt?.text ??
+    (transcriptPrompt?.trim() && contextOutsideTranscript === undefined
+      ? extracted.text
+      : (transcriptPrompt ?? extracted.text));
   const prompt = transcriptPrompt ?? extracted.text;
   if (!prompt.trim() && params.emptyTranscriptMode === "model-prompt") {
     return {
@@ -92,12 +101,8 @@ export function resolveRuntimeContextPromptParts(params: {
   }
   const hiddenRuntimeContext = modelPrompt
     ? (removeLastPromptOccurrence(extracted.text, modelPrompt.text)?.trim() ??
-      (transcriptPrompt
-        ? removeLastPromptOccurrence(extracted.text, transcriptPrompt)?.trim()
-        : undefined))
-    : transcriptPrompt
-      ? removeLastPromptOccurrence(extracted.text, transcriptPrompt)?.trim()
-      : undefined;
+      contextOutsideTranscript)
+    : contextOutsideTranscript;
   const runtimeContext =
     [hiddenRuntimeContext, extracted.runtimeContext]
       .filter((value): value is string => Boolean(value?.trim()))

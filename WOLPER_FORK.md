@@ -144,6 +144,18 @@ queued run; cancel that specific run separately.
 
 ## Build and activate a candidate
 
+Heartbeat wakes preserve their full model input even when the transcript stores
+`[OpenClaw heartbeat poll]` and no plugin adds prompt context. This also applies
+to other transcript-only labels, including session starts. The production prompt
+splitter keeps hidden runtime context separate and the existing model transform
+retains the current input through tool rounds without rewriting older messages.
+`test/wolper/wake-prompt.node-test.mjs` checks the source contract. Run
+`test/wolper/wake-prompt-wire-smoke.mjs` with Node inside a candidate image to
+exercise a disposable Gateway, authenticated wake hooks, a local model endpoint,
+tool calls, and the actual persisted transcript. This probe uses no prompt hooks,
+owner sessions, or paid provider calls. Activate and verify the fixed runtime
+before removing any heartbeat inbox fallback from a backend-managed prompt.
+
 Use Wolper's `build-image.sh` with `OPENCLAW_SOURCE_MODE=fork`,
 `OPENCLAW_SOURCE_DIR` pointing at this checkout, and `OPENCLAW_SOURCE_REF` set to
 the full current commit SHA. The checkout must be clean. Select unique candidate
