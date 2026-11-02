@@ -4,6 +4,7 @@ import {
   insertRuntimeContextMessageForPrompt,
   normalizeMessagesForLlmBoundary,
 } from "./attempt.llm-boundary.js";
+import { resolveRuntimeContextPromptParts } from "./runtime-context-prompt.js";
 
 describe("normalizeMessagesForLlmBoundary", () => {
   it("strips inbound metadata from historical user turns before model replay", () => {
@@ -376,6 +377,52 @@ describe("normalizeMessagesForLlmBoundary", () => {
     );
     expect(captured).toHaveLength(2);
     expect(session.agent.transformContext).not.toBeUndefined();
+  });
+
+  it("delivers a wake through tool rounds without persisting its text or changing older markers", async () => {
+    const marker = "[OpenClaw heartbeat poll]";
+    const wake = 'System: New event.\nSystem: {"event_id":"event-1","title":"Planning"}';
+    const submission = resolveRuntimeContextPromptParts({
+      effectivePrompt: wake,
+      transcriptPrompt: marker,
+    });
+    type Messages = Parameters<typeof normalizeMessagesForLlmBoundary>[0];
+    const messages = [
+      { role: "user", content: [{ type: "text", text: marker }], timestamp: 1 },
+      { role: "user", content: [{ type: "text", text: marker }], timestamp: 2 },
+    ] as Messages;
+    const session = {
+      agent: { transformContext: async (next: Messages): Promise<Messages> => next },
+    };
+    const cleanup = installModelPromptTransform({
+      session,
+      transcriptPrompt: submission.prompt,
+      modelPrompt: submission.modelPrompt,
+      shouldCapturePrompt: () => true,
+    });
+    try {
+      for (const input of [
+        messages,
+        [
+          ...messages,
+          {
+            role: "toolResult",
+            toolCallId: "lookup",
+            toolName: "read",
+            content: [],
+            isError: false,
+            timestamp: 3,
+          },
+        ] as Messages,
+      ]) {
+        const output = await session.agent.transformContext(input);
+        expect(output[0]?.content).toEqual([{ type: "text", text: marker }]);
+        expect(output[1]?.content).toEqual([{ type: "text", text: wake }]);
+      }
+      expect(messages[1]?.content).toEqual([{ type: "text", text: marker }]);
+    } finally {
+      cleanup();
+    }
   });
 
   it("restores the original model prompt transform on cleanup", async () => {

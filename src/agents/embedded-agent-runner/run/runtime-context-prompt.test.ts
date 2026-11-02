@@ -8,6 +8,42 @@ import {
 } from "./runtime-context-prompt.js";
 
 describe("runtime context prompt submission", () => {
+  it.each(["[OpenClaw heartbeat poll]", "[OpenClaw session reset]"])(
+    "keeps the full model input when the transcript uses %s without prompt hooks",
+    (transcriptPrompt) => {
+      const effectivePrompt =
+        'System: New calendar event.\nSystem: {"event_id":"event-1","title":"Planning"}\n\nRead HEARTBEAT.md.';
+      expect(resolveRuntimeContextPromptParts({ effectivePrompt, transcriptPrompt })).toEqual({
+        prompt: transcriptPrompt,
+        modelPrompt: effectivePrompt,
+      });
+    },
+  );
+
+  it("keeps hidden context separate when a transcript placeholder replaces the input", () => {
+    const runtimeContext =
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nprivate runtime data\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>";
+    expect(
+      resolveRuntimeContextPromptParts({
+        effectivePrompt: `System: New event.\n\n${runtimeContext}`,
+        transcriptPrompt: "[OpenClaw heartbeat poll]",
+      }),
+    ).toEqual({
+      prompt: "[OpenClaw heartbeat poll]",
+      modelPrompt: "System: New event.",
+      runtimeContext,
+    });
+  });
+
+  it("still separates ordinary visible text from its unmarked runtime prefix", () => {
+    expect(
+      resolveRuntimeContextPromptParts({
+        effectivePrompt: "System: New event.\n\nvisible ask",
+        transcriptPrompt: "visible ask",
+      }),
+    ).toEqual({ prompt: "visible ask", runtimeContext: "System: New event." });
+  });
+
   it("keeps unchanged prompts as a normal user prompt", () => {
     expect(
       resolveRuntimeContextPromptParts({
