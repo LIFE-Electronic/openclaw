@@ -52,8 +52,8 @@ Notes:
 - `models list` reads config, auth profiles, existing catalog state, and
   provider-owned catalog rows. For enabled external plugins with configured
   provider blocks and plugin-managed authentication, it runs scoped catalog
-  discovery and may update generated `models.json`. The authored config stays
-  unchanged. An empty provider `models: []` does not hide its discovered models.
+  discovery before authored inference overrides are merged. The authored config
+  stays unchanged. An empty provider `models: []` does not hide its discovered models.
 - The `Auth` column is provider-level and read-only. It is computed from local
   auth profile metadata, env markers, configured provider keys, local-provider
   markers, AWS Bedrock env/profile markers, and plugin synthetic-auth metadata;

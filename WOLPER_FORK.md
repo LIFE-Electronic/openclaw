@@ -98,7 +98,10 @@ provider block as a context hint with `models: []`; model capabilities and conte
 windows come from the backend catalog instead of configured placeholders.
 
 `src/agents/configured-plugin-catalog.ts` uses scoped
-`ensureOpenClawModelsJson` discovery and the native registry. Only enabled external
+`resolveImplicitProviders` catalog discovery before registry/inference resolution
+merges authored overrides. BlueHouse's catalog therefore also overrides stale
+authored text-only capabilities and context windows for browsing and vision
+selection. Only enabled external
 providers with authored provider blocks and plugin-managed authentication are
 eligible. Browse projections omit credentials and runtime headers. The CLI's
 configured model tags and aliases remain intact.
@@ -115,7 +118,8 @@ Focused coverage lives in `src/agents/configured-plugin-catalog.test.ts`,
 `src/gateway/server-methods/models.test.ts`, and the image-tool tests. Wolper's
 `scripts/openclaw/catalog-vision-probe.mjs` additionally exercises the compiled
 CLI, all three Gateway views, and a real image-tool request against a local model
-double with the actual BlueHouse plugin and no `imageModel`. Candidate image
+double with the actual BlueHouse plugin and no `imageModel`, covering both empty
+and stale text-only authored model definitions. Candidate image
 acceptance, fresh-container assertions, and guarded explicit-target activation
 are documented in
 [Wolper PR 134](https://github.com/LIFE-Electronic/wolper/pull/134).

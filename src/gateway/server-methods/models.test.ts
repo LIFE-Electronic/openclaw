@@ -51,7 +51,26 @@ describe("models.list", () => {
         client: null,
         isWebchatConnect: () => false,
         context: {
-          getRuntimeConfig: () => ({ agents: { defaults: { models: { "bluehouse/*": {} } } } }),
+          getRuntimeConfig: () => ({
+            agents: { defaults: { models: { "bluehouse/*": {} } } },
+            models: {
+              providers: {
+                bluehouse: {
+                  baseUrl: "https://bluehouse.test/v1",
+                  models: [
+                    {
+                      ...model,
+                      reasoning: false,
+                      input: ["text"],
+                      contextWindow: 200000,
+                      maxTokens: 8192,
+                      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                    },
+                  ],
+                },
+              },
+            },
+          }),
           loadGatewayModelCatalog: async () => [],
           logGateway: { debug: vi.fn() },
         } as never,

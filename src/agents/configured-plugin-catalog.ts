@@ -37,7 +37,7 @@ export function configuredPluginProviderIds(params: CatalogContext): string[] {
   ];
 }
 
-/** Use the native scoped discovery/writer, retaining plugin ownership and secret-safe persistence. */
+/** Read native scoped catalog discovery before authored inference overrides are merged. */
 export async function loadConfiguredPluginModelCatalog(
   params: CatalogContext & { agentDir: string },
 ): Promise<Array<ModelCatalogEntry & { baseUrl?: string }>> {
@@ -75,32 +75,29 @@ export async function loadConfiguredPluginModelCatalog(
   if (providers.length === 0) {
     return [];
   }
-  const { ensureOpenClawModelsJson } = await import("./models-config.js");
-  await ensureOpenClawModelsJson(params.config, params.agentDir, {
+  const { resolveImplicitProviders } = await import("./models-config.providers.js");
+  const catalog = await resolveImplicitProviders({
+    config: params.config,
+    agentDir: params.agentDir,
     workspaceDir: params.workspaceDir,
+    explicitProviders: params.config.models?.providers ?? {},
     providerDiscoveryProviderIds: providers,
+    catalogOnly: true,
   });
-  const { discoverAuthStorage, discoverModels } = await import("./agent-model-discovery.js");
-  const auth = discoverAuthStorage(params.agentDir, {
-    config: params.config,
-    workspaceDir: params.workspaceDir,
-    readOnly: true,
-  });
-  const registry = discoverModels(auth, params.agentDir, {
-    config: params.config,
-    workspaceDir: params.workspaceDir,
-  });
+  // Registry/inference resolution applies authored overrides, including stale
+  // text-only rows. Browse and vision selection need the provider's catalog.
   // Project only catalog metadata: runtime auth/headers must never reach browse responses.
-  return registry
-    .getAll()
-    .filter((model) => providers.includes(model.provider))
-    .map((model) => ({
-      provider: model.provider,
-      id: model.id,
-      name: model.name,
-      input: [...model.input],
-      contextWindow: model.contextWindow,
-      reasoning: model.reasoning,
-      baseUrl: model.baseUrl,
-    }));
+  return Object.entries(catalog ?? {})
+    .filter(([provider]) => providers.includes(provider))
+    .flatMap(([provider, definition]) =>
+      definition.models.map((model) => ({
+        provider,
+        id: model.id,
+        name: model.name,
+        input: [...model.input],
+        contextWindow: model.contextWindow,
+        reasoning: model.reasoning,
+        baseUrl: definition.baseUrl,
+      })),
+    );
 }

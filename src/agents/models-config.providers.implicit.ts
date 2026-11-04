@@ -52,6 +52,8 @@ type ImplicitProviderParams = {
   providerDiscoveryProviderIds?: readonly string[];
   providerDiscoveryTimeoutMs?: number;
   providerDiscoveryEntriesOnly?: boolean;
+  /** Browse/selection callers need catalog metadata before authored inference overrides. */
+  catalogOnly?: boolean;
 };
 
 type ImplicitProviderContext = ImplicitProviderParams & {
@@ -417,15 +419,17 @@ async function resolvePluginImplicitProviders(
         providerId,
         existing:
           discovered[providerId] ??
-          resolveExistingImplicitProviderFromContext({
-            ctx,
-            providerIds: [
-              providerId,
-              provider.id,
-              ...(provider.aliases ?? []),
-              ...(provider.hookAliases ?? []),
-            ],
-          }),
+          (ctx.catalogOnly
+            ? undefined
+            : resolveExistingImplicitProviderFromContext({
+                ctx,
+                providerIds: [
+                  providerId,
+                  provider.id,
+                  ...(provider.aliases ?? []),
+                  ...(provider.hookAliases ?? []),
+                ],
+              })),
         implicit: implicitProvider,
         dynamicProviderModels: hasProviderWildcardVisibility({
           config: ctx.config,

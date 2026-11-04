@@ -18,6 +18,7 @@ import {
 import { resolveVisibleModelCatalog } from "../../agents/model-catalog-visibility.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import { createProviderAuthChecker } from "../../agents/model-provider-auth.js";
+import { modelKey } from "../../agents/model-selection-normalize.js";
 import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -79,9 +80,14 @@ export const modelsHandlers: GatewayRequestHandlers = {
         workspaceDir,
       });
       const pluginProviders = new Set(pluginCatalog.map((model) => model.provider));
+      const pluginModels = new Map(
+        pluginCatalog.map(
+          ({ baseUrl: _baseUrl, ...model }) => [modelKey(model.provider, model.id), model] as const,
+        ),
+      );
       const catalog = [
         ...discovered.filter((model) => !pluginProviders.has(model.provider)),
-        ...pluginCatalog.map(({ baseUrl: _baseUrl, ...model }) => model),
+        ...pluginModels.values(),
       ];
       const hasAuth = createProviderAuthChecker({
         cfg,
@@ -102,7 +108,12 @@ export const modelsHandlers: GatewayRequestHandlers = {
         runtimeAuthDiscovery: false,
         providerAuthChecker: (provider) => pluginProviders.has(provider) || hasAuth(provider),
       });
-      respond(true, { models: omitRuntimeModelParamsFromCatalog(models) }, undefined);
+      // Visibility can synthesize authored rows. Keep its selection policy while
+      // restoring the selected external models' authoritative catalog metadata.
+      const visibleModels = models.map(
+        (model) => pluginModels.get(modelKey(model.provider, model.id)) ?? model,
+      );
+      respond(true, { models: omitRuntimeModelParamsFromCatalog(visibleModels) }, undefined);
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
     }
