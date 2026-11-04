@@ -89,6 +89,7 @@ const mocks = vi.hoisted(() => {
     resolveDefaultAgentDir: vi.fn(),
     loadModelRegistry: vi.fn(),
     loadModelCatalog: vi.fn(),
+    loadConfiguredPluginModelCatalog: vi.fn(),
     loadProviderCatalogModelsForList: vi.fn(),
     loadStaticManifestCatalogRowsForList: vi.fn(),
     loadSupplementalManifestCatalogRowsForList: vi.fn(),
@@ -120,6 +121,7 @@ function resetMocks() {
     },
   });
   mocks.loadModelCatalog.mockResolvedValue([]);
+  mocks.loadConfiguredPluginModelCatalog.mockResolvedValue([]);
   mocks.loadProviderCatalogModelsForList.mockResolvedValue([]);
   mocks.loadStaticManifestCatalogRowsForList.mockReturnValue([]);
   mocks.loadSupplementalManifestCatalogRowsForList.mockReturnValue([]);
@@ -295,6 +297,10 @@ function installModelsListCommandForwardCompatMocks() {
     resolveDefaultAgentDir: mocks.resolveDefaultAgentDir,
     resolveDefaultAgentId: vi.fn(() => "main"),
     resolveSessionAgentIds: vi.fn(() => ({ defaultAgentId: "main", sessionAgentId: "main" })),
+  }));
+
+  vi.doMock("../../agents/configured-plugin-catalog.js", () => ({
+    loadConfiguredPluginModelCatalog: mocks.loadConfiguredPluginModelCatalog,
   }));
 
   vi.doMock("../../agents/model-catalog.js", () => ({
@@ -614,6 +620,41 @@ describe("modelsListCommand forward-compat", () => {
       expectRowFields(rows, "ollama/llama3.2:3b", {
         name: "Llama 3.2 3B",
         tags: [],
+      });
+    });
+
+    it("lists authenticated plugin models before configured placeholders without --all", async () => {
+      mocks.resolveConfiguredEntries.mockReturnValueOnce({
+        entries: [
+          {
+            key: "bluehouse/deepseek-v4.1-flash",
+            ref: { provider: "bluehouse", model: "deepseek-v4.1-flash" },
+            tags: new Set(["default"]),
+            aliases: ["vision"],
+          },
+        ],
+      });
+      const model = {
+        ...OPENAI_CODEX_MODEL,
+        provider: "bluehouse",
+        id: "deepseek-v4.1-flash",
+        name: "DeepSeek via BlueHouse",
+        input: ["text", "image"],
+        contextWindow: 1048576,
+      };
+      mocks.loadConfiguredPluginModelCatalog.mockResolvedValueOnce([
+        model,
+        { ...model, id: "future-remote-model" },
+      ]);
+      await modelsListCommand({ json: true }, createRuntime() as never);
+      const rows = lastPrintedRows<{ key: string } & Record<string, unknown>>();
+      expectRowKeys(rows, ["bluehouse/deepseek-v4.1-flash", "bluehouse/future-remote-model"]);
+      expectRowFields(rows, "bluehouse/deepseek-v4.1-flash", {
+        input: "text+image",
+        contextWindow: 1048576,
+        available: true,
+        missing: false,
+        tags: ["default", "alias:vision"],
       });
     });
 

@@ -44,7 +44,7 @@ OpenClaw selects models in this order:
 <AccordionGroup>
   <Accordion title="Related model surfaces">
     - `agents.defaults.models` is the allowlist/catalog of models OpenClaw can use (plus aliases). Use `provider/*` entries to limit visible providers while keeping provider discovery dynamic.
-    - `agents.defaults.imageModel` is used **only when** the primary model can't accept images.
+    - `agents.defaults.imageModel` selects the image tool's explicit primary and fallbacks. When omitted, the tool can use vision metadata from authenticated configured external plugins: chat primary first, then chat fallbacks, then other vision models from the primary's provider, before existing automatic image defaults.
     - `agents.defaults.pdfModel` is used by the `pdf` tool. If omitted, the tool falls back to `agents.defaults.imageModel`, then the resolved session/default model.
     - `agents.defaults.imageGenerationModel` is used by the shared image-generation capability. If omitted, `image_generate` can still infer an auth-backed provider default. It tries the current default provider first, then the remaining registered image-generation providers in provider-id order. If you set a specific provider/model, also configure that provider's auth/API key.
     - `agents.defaults.musicGenerationModel` is used by the shared music-generation capability. If omitted, `music_generate` can still infer an auth-backed provider default. It tries the current default provider first, then the remaining registered music-generation providers in provider-id order. If you set a specific provider/model, also configure that provider's auth/API key.
@@ -248,7 +248,10 @@ openclaw models image-fallbacks clear
 
 ### `models list`
 
-Shows configured/auth-available models by default. Useful flags:
+Shows configured/auth-available models by default, including authenticated
+catalogs from configured external provider plugins. Catalog capabilities take
+precedence over configured placeholders; a provider's empty `models: []` does not
+require `--all` to discover its models. Useful flags:
 
 <ParamField path="--all" type="boolean">
   Full catalog. Includes bundled provider-owned static catalog rows before auth is configured, so discovery-only views can show models that are unavailable until you add matching provider credentials.

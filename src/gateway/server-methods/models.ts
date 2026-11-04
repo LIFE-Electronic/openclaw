@@ -4,7 +4,12 @@ import {
   formatValidationErrors,
   validateModelsListParams,
 } from "../../../packages/gateway-protocol/src/index.js";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import {
+  resolveAgentWorkspaceDir,
+  resolveDefaultAgentId,
+  resolveDefaultAgentDir,
+} from "../../agents/agent-scope.js";
+import { loadConfiguredPluginModelCatalog } from "../../agents/configured-plugin-catalog.js";
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import {
   loadModelCatalogForBrowse,
@@ -12,6 +17,8 @@ import {
 } from "../../agents/model-catalog-browse.js";
 import { resolveVisibleModelCatalog } from "../../agents/model-catalog-visibility.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
+import { createProviderAuthChecker } from "../../agents/model-provider-auth.js";
+import { modelKey } from "../../agents/model-selection-normalize.js";
 import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -53,7 +60,7 @@ export const modelsHandlers: GatewayRequestHandlers = {
         resolveAgentWorkspaceDir(cfg, resolveDefaultAgentId(cfg)) ??
         resolveDefaultAgentWorkspaceDir();
       const view = resolveModelsListView(params);
-      const catalog = await loadModelCatalogForBrowse({
+      const discovered = await loadModelCatalogForBrowse({
         cfg,
         view,
         loadCatalog: context.loadGatewayModelCatalog,
@@ -67,6 +74,27 @@ export const modelsHandlers: GatewayRequestHandlers = {
           );
         },
       });
+      const pluginCatalog = await loadConfiguredPluginModelCatalog({
+        config: cfg,
+        agentDir: resolveDefaultAgentDir(cfg),
+        workspaceDir,
+      });
+      const pluginProviders = new Set(pluginCatalog.map((model) => model.provider));
+      const pluginModels = new Map(
+        pluginCatalog.map(
+          ({ baseUrl: _baseUrl, ...model }) => [modelKey(model.provider, model.id), model] as const,
+        ),
+      );
+      const catalog = [
+        ...discovered.filter((model) => !pluginProviders.has(model.provider)),
+        ...pluginModels.values(),
+      ];
+      const hasAuth = createProviderAuthChecker({
+        cfg,
+        workspaceDir,
+        allowPluginSyntheticAuth: false,
+        discoverExternalCliAuth: false,
+      });
       if (view === "all") {
         respond(true, { models: omitRuntimeModelParamsFromCatalog(catalog) }, undefined);
         return;
@@ -78,8 +106,14 @@ export const modelsHandlers: GatewayRequestHandlers = {
         workspaceDir,
         view,
         runtimeAuthDiscovery: false,
+        providerAuthChecker: (provider) => pluginProviders.has(provider) || hasAuth(provider),
       });
-      respond(true, { models: omitRuntimeModelParamsFromCatalog(models) }, undefined);
+      // Visibility can synthesize authored rows. Keep its selection policy while
+      // restoring the selected external models' authoritative catalog metadata.
+      const visibleModels = models.map(
+        (model) => pluginModels.get(modelKey(model.provider, model.id)) ?? model,
+      );
+      respond(true, { models: omitRuntimeModelParamsFromCatalog(visibleModels) }, undefined);
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
     }

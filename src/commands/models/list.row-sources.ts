@@ -1,3 +1,4 @@
+import { loadConfiguredPluginModelCatalog } from "../../agents/configured-plugin-catalog.js";
 import type { ModelRegistry } from "../../llm/model-registry.js";
 import {
   appendCatalogSupplementRows,
@@ -173,8 +174,37 @@ export async function appendConfiguredModelRowSources(params: {
   modelRegistry?: ModelRegistry;
   context: RowBuilderContext;
 }): Promise<void> {
-  await appendConfiguredRows(params);
-  const seenKeys = new Set(params.rows.map((row) => row.key));
+  const pluginCatalog = await loadConfiguredPluginModelCatalog({
+    config: params.context.cfg,
+    agentDir: params.context.agentDir,
+    workspaceDir: params.context.workspaceDir,
+    metadataSnapshot: params.context.metadataSnapshot,
+  });
+  const pluginProviders = new Set(pluginCatalog.map((model) => model.provider));
+  const context = {
+    ...params.context,
+    authIndex: {
+      ...params.context.authIndex,
+      hasProviderAuth: (provider: string) =>
+        pluginProviders.has(provider) || params.context.authIndex.hasProviderAuth(provider),
+    },
+  };
+  const seenKeys = new Set<string>();
+  // Catalog rows must win over synthetic configured placeholders, retaining their tags/aliases.
+  await appendModelCatalogRows({
+    rows: params.rows,
+    context,
+    seenKeys,
+    catalogRows: pluginCatalog,
+  });
+  await appendConfiguredRows({
+    ...params,
+    context,
+    entries: params.entries.filter((entry) => !seenKeys.has(entry.key)),
+  });
+  for (const row of params.rows) {
+    seenKeys.add(row.key);
+  }
   await appendConfiguredProviderRows({
     rows: params.rows,
     context: params.context,

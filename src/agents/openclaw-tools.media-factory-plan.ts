@@ -8,6 +8,7 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import { uniqueStrings } from "../shared/string-normalization.js";
 import { listProfilesForProvider } from "./auth-profiles/profile-list.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
+import { configuredPluginProviderIds } from "./configured-plugin-catalog.js";
 import { isToolAllowedByPolicyName } from "./tool-policy-match.js";
 import { DEFAULT_PLUGIN_TOOLS_ALLOWLIST_ENTRY } from "./tool-policy.js";
 import {
@@ -117,6 +118,11 @@ export function resolveImageToolFactoryAvailable(params: {
     ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
   });
   return (
+    (params.config !== undefined &&
+      configuredPluginProviderIds({
+        config: params.config,
+        metadataSnapshot: snapshot,
+      }).length > 0) ||
     hasSnapshotCapabilityAvailability({
       snapshot,
       authStore: params.authStore,

@@ -1,5 +1,6 @@
 import { resolve, isAbsolute } from "node:path";
 import { Type } from "typebox";
+import { resolveAgentModelFallbackValues } from "../../config/model-input.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { MediaUnderstandingModelConfig } from "../../config/types.tools.js";
 import {
@@ -35,6 +36,7 @@ import {
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
 import { resolveUserPath } from "../../utils.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
+import { loadConfiguredPluginModelCatalog } from "../configured-plugin-catalog.js";
 import { resolveModelAsync } from "../embedded-agent-runner/model.js";
 import {
   bundledStaticCatalogProviderUsesRuntimeAugment,
@@ -306,6 +308,43 @@ export function resolveImageModelConfigForTool(params: {
     authStore: params.authStore,
     candidates: [...primaryAliasCandidates, ...primaryCandidates, ...remainingAutoCandidates],
   });
+}
+
+/** Resolve plugin vision models lazily, after explicit settings and before built-in guesses. */
+async function resolveImageModelConfigFromCatalog(
+  params: Parameters<typeof resolveImageModelConfigForTool>[0],
+): Promise<ImageModelConfig | null> {
+  if (!params.cfg) {
+    return resolveImageModelConfigForTool(params);
+  }
+  const catalog = await loadConfiguredPluginModelCatalog({
+    config: params.cfg,
+    agentDir: params.agentDir,
+    workspaceDir: params.workspaceDir,
+  });
+  const vision = catalog.filter((model) => model.input?.includes("image"));
+  const primary = resolveDefaultModelRef(params.cfg);
+  const refs = new Set(vision.map((model) => `${model.provider}/${model.id}`));
+  const preferred = [
+    `${primary.provider}/${primary.model}`,
+    ...resolveAgentModelFallbackValues(params.cfg.agents?.defaults?.model),
+  ].filter((ref) => refs.has(ref));
+  const sameProvider = vision
+    .filter((model) => model.provider === primary.provider)
+    .map((model) => `${model.provider}/${model.id}`);
+  const automatic = resolveImageModelConfigForTool(params);
+  const candidates = [
+    ...new Set([
+      ...preferred,
+      ...sameProvider,
+      ...(automatic?.primary ? [automatic.primary] : []),
+      ...(automatic?.fallbacks ?? []),
+    ]),
+  ];
+  if (candidates.length === 0) {
+    return automatic;
+  }
+  return { ...automatic, primary: candidates[0], fallbacks: candidates.slice(1) };
 }
 
 function resolveImageModelConfigForOverride(params: {
@@ -825,12 +864,12 @@ export function createImageTool(options?: {
           cfg: options?.config,
           modelOverride,
         }) ??
-        resolveImageModelConfigForTool({
+        (await resolveImageModelConfigFromCatalog({
           cfg: options?.config,
           agentDir,
           workspaceDir: options?.workspaceDir,
           authStore: options?.authProfileStore,
-        });
+        }));
       if (!imageModelConfig) {
         throw new Error(
           "No image model is configured. Set agents.defaults.imageModel or configure an image-capable provider.",

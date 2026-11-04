@@ -229,86 +229,95 @@ describe("resolveImplicitProviders startup discovery scope", () => {
     expect(providers?.minimax?.models.map((model) => model.id)).toEqual(["MiniMax-M2.7"]);
   });
 
-  it("keeps explicit provider models manual without provider wildcard visibility", async () => {
-    const explicitProvider = {
-      baseUrl: "http://vllm.example/v1",
-      api: "openai-completions" as const,
-      models: [createTextModel("manual-model", "Manual Model")],
-    };
-    mocks.resolveRuntimePluginDiscoveryProviders.mockResolvedValue([createProvider("vllm")]);
-    mocks.runProviderCatalog.mockResolvedValue({
-      provider: {
+  it.each([false, true])(
+    "keeps authored overrides out of catalog-only discovery (%s)",
+    async (catalogOnly) => {
+      const explicitProvider = {
         baseUrl: "http://vllm.example/v1",
         api: "openai-completions" as const,
-        models: [createTextModel("discovered-model", "Discovered Model")],
-      },
-    });
+        models: [createTextModel("manual-model", "Manual Model")],
+      };
+      mocks.resolveRuntimePluginDiscoveryProviders.mockResolvedValue([createProvider("vllm")]);
+      mocks.runProviderCatalog.mockResolvedValue({
+        provider: {
+          baseUrl: "http://vllm.example/v1",
+          api: "openai-completions" as const,
+          models: [createTextModel("discovered-model", "Discovered Model")],
+        },
+      });
 
-    const providers = await resolveImplicitProviders({
-      agentDir: "/tmp/openclaw-agent",
-      config: {
-        agents: {
-          defaults: {
-            models: {
-              "vllm/manual-model": {},
+      const providers = await resolveImplicitProviders({
+        agentDir: "/tmp/openclaw-agent",
+        catalogOnly,
+        config: {
+          agents: {
+            defaults: {
+              models: {
+                "vllm/manual-model": {},
+              },
+            },
+          },
+          models: {
+            providers: {
+              vllm: explicitProvider,
             },
           },
         },
-        models: {
-          providers: {
-            vllm: explicitProvider,
-          },
+        env: {} as NodeJS.ProcessEnv,
+        explicitProviders: {
+          vllm: explicitProvider,
         },
-      },
-      env: {} as NodeJS.ProcessEnv,
-      explicitProviders: {
-        vllm: explicitProvider,
-      },
-    });
+      });
 
-    expect(providers?.vllm?.models.map((model) => model.id)).toEqual(["manual-model"]);
-  });
+      expect(providers?.vllm?.models.map((model) => model.id)).toEqual([
+        catalogOnly ? "discovered-model" : "manual-model",
+      ]);
+    },
+  );
 
-  it("merges discovered self-hosted models into explicit provider models for wildcard visibility", async () => {
-    const explicitProvider = {
-      baseUrl: "http://vllm.example/v1",
-      api: "openai-completions" as const,
-      models: [createTextModel("manual-model", "Manual Model")],
-    };
-    mocks.resolveRuntimePluginDiscoveryProviders.mockResolvedValue([createProvider("vllm")]);
-    mocks.runProviderCatalog.mockResolvedValue({
-      provider: {
+  it.each([false, true])(
+    "keeps wildcard merging out of catalog-only discovery (%s)",
+    async (catalogOnly) => {
+      const explicitProvider = {
         baseUrl: "http://vllm.example/v1",
         api: "openai-completions" as const,
-        models: [createTextModel("discovered-model", "Discovered Model")],
-      },
-    });
+        models: [createTextModel("manual-model", "Manual Model")],
+      };
+      mocks.resolveRuntimePluginDiscoveryProviders.mockResolvedValue([createProvider("vllm")]);
+      mocks.runProviderCatalog.mockResolvedValue({
+        provider: {
+          baseUrl: "http://vllm.example/v1",
+          api: "openai-completions" as const,
+          models: [createTextModel("discovered-model", "Discovered Model")],
+        },
+      });
 
-    const providers = await resolveImplicitProviders({
-      agentDir: "/tmp/openclaw-agent",
-      config: {
-        agents: {
-          defaults: {
-            models: {
-              "vllm/*": {},
+      const providers = await resolveImplicitProviders({
+        agentDir: "/tmp/openclaw-agent",
+        catalogOnly,
+        config: {
+          agents: {
+            defaults: {
+              models: {
+                "vllm/*": {},
+              },
+            },
+          },
+          models: {
+            providers: {
+              vllm: explicitProvider,
             },
           },
         },
-        models: {
-          providers: {
-            vllm: explicitProvider,
-          },
+        env: {} as NodeJS.ProcessEnv,
+        explicitProviders: {
+          vllm: explicitProvider,
         },
-      },
-      env: {} as NodeJS.ProcessEnv,
-      explicitProviders: {
-        vllm: explicitProvider,
-      },
-    });
+      });
 
-    expect(providers?.vllm?.models.map((model) => model.id)).toEqual([
-      "manual-model",
-      "discovered-model",
-    ]);
-  });
+      expect(providers?.vllm?.models.map((model) => model.id)).toEqual(
+        catalogOnly ? ["discovered-model"] : ["manual-model", "discovered-model"],
+      );
+    },
+  );
 });

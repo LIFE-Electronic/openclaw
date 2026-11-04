@@ -10,6 +10,11 @@ import { resolveImageToolFactoryAvailable } from "../openclaw-tools.media-factor
 import { createImageTool, resolveImageModelConfigForTool, testing } from "./image-tool.js";
 import { hasProviderAuthForTool } from "./model-config.helpers.js";
 
+const catalogMocks = vi.hoisted(() => ({ load: vi.fn() }));
+vi.mock("../configured-plugin-catalog.js", () => ({
+  loadConfiguredPluginModelCatalog: catalogMocks.load,
+}));
+
 const USER_PROVIDER = "hatchery-qwen3.6-plus";
 const USER_MODEL = "qwen3.6-plus";
 const USER_PRIMARY = `${USER_PROVIDER}/${USER_MODEL}`;
@@ -85,6 +90,7 @@ describe("image custom provider auth regression", () => {
   const priorFetch = global.fetch;
 
   beforeEach(() => {
+    catalogMocks.load.mockReset().mockResolvedValue([]);
     mediaRuntimeMock.loadWebMedia.mockClear();
     mediaRuntimeMock.optimizeImageBufferForWebMedia.mockClear();
     for (const key of USER_PROVIDER_AUTH_ENV_KEYS) {
@@ -186,6 +192,66 @@ describe("image custom provider auth regression", () => {
       expect(text).toContain(`seen:${USER_PRIMARY}`);
       expect(text).not.toMatch(/No image model is configured/i);
       expect(mediaRuntimeMock.optimizeImageBufferForWebMedia).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("executes image autodetection from an authenticated remote catalog without authored model rows", async () => {
+    await withEmptyAgentDir(async (agentDir) => {
+      const cfg = createUserReportedConfig({ includeApiKey: false });
+      cfg.models!.providers![USER_PROVIDER].models = [];
+      catalogMocks.load.mockResolvedValue([
+        { ...makeVisionModel(USER_MODEL), provider: USER_PROVIDER },
+      ]);
+      const tool = createImageTool({ config: cfg, agentDir, deferAutoModelResolution: true });
+      const result = await tool!.execute("catalog-image", {
+        image: `data:image/png;base64,${ONE_PIXEL_PNG_B64}`,
+        prompt: "Describe the plan.",
+      });
+      expect(JSON.stringify(result)).toContain(`seen:${USER_PRIMARY}`);
+      expect(cfg.agents!.defaults!.imageModel).toBeUndefined();
+    });
+  });
+
+  it.each([
+    { primaryVision: false, fallback: true, expected: "future-vision" },
+    { primaryVision: false, fallback: false, expected: "future-vision" },
+    { primaryVision: true, fallback: true, expected: USER_MODEL },
+  ])(
+    "prefers catalog vision primary then fallbacks: %j",
+    async ({ primaryVision, fallback, expected }) => {
+      await withEmptyAgentDir(async (agentDir) => {
+        const cfg = createUserReportedConfig({ includeApiKey: false });
+        cfg.models!.providers![USER_PROVIDER].models = [];
+        cfg.agents!.defaults!.model = {
+          primary: USER_PRIMARY,
+          fallbacks: fallback ? [`${USER_PROVIDER}/future-vision`] : [],
+        };
+        catalogMocks.load.mockResolvedValue([
+          {
+            ...makeVisionModel(USER_MODEL),
+            provider: USER_PROVIDER,
+            input: primaryVision ? ["text", "image"] : ["text"],
+          },
+          { ...makeVisionModel("future-vision"), provider: USER_PROVIDER },
+        ]);
+        const tool = createImageTool({ config: cfg, agentDir, deferAutoModelResolution: true });
+        const result = await tool!.execute("catalog-image", {
+          image: `data:image/png;base64,${ONE_PIXEL_PNG_B64}`,
+        });
+        expect(JSON.stringify(result)).toContain(`seen:${USER_PROVIDER}/${expected}`);
+      });
+    },
+  );
+
+  it("does not replace an explicit image default with discovered catalog preference", async () => {
+    await withEmptyAgentDir(async (agentDir) => {
+      const cfg = createUserReportedConfig();
+      cfg.agents!.defaults!.imageModel = { primary: USER_PRIMARY };
+      const tool = createImageTool({ config: cfg, agentDir, deferAutoModelResolution: true });
+      await tool!.execute("explicit-image", {
+        image: `data:image/png;base64,${ONE_PIXEL_PNG_B64}`,
+      });
+      expect(catalogMocks.load).not.toHaveBeenCalled();
     });
   });
 

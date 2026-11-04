@@ -14,7 +14,10 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import { resetPluginRuntimeStateForTest } from "../plugins/runtime.js";
 import { clearSecretsRuntimeSnapshot } from "../secrets/runtime.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
-import { resolveOptionalMediaToolFactoryPlan } from "./openclaw-tools.media-factory-plan.js";
+import {
+  resolveImageToolFactoryAvailable,
+  resolveOptionalMediaToolFactoryPlan,
+} from "./openclaw-tools.media-factory-plan.js";
 import { DEFAULT_PLUGIN_TOOLS_ALLOWLIST_ENTRY } from "./tool-policy.js";
 import { loadCapabilityMetadataSnapshot } from "./tools/manifest-capability-availability.js";
 import * as pdfModelConfigModule from "./tools/pdf-tool.model-config.js";
@@ -170,6 +173,27 @@ describe("optional media tool factory planning", () => {
     setBundledPluginsDirOverrideForTest(undefined);
     vi.unstubAllEnvs();
   });
+
+  it.each([true, false])(
+    "defers external catalog vision discovery only for enabled plugins (%s)",
+    (enabled) => {
+      const config: OpenClawConfig = {
+        models: { providers: { remote: { baseUrl: "https://remote.test/v1", models: [] } } },
+        plugins: { entries: { "remote-plugin": { enabled } } },
+      };
+      const plugin = createPlugin({ id: "remote-plugin", origin: "config", contracts: {} });
+      plugin.providers = ["remote"];
+      installSnapshot(config, [plugin], enabled ? [plugin.id] : []);
+      expect(
+        resolveImageToolFactoryAvailable({
+          config,
+          agentDir: "/agent",
+          modelHasVision: false,
+          authStore: createAuthStore(),
+        }),
+      ).toBe(enabled);
+    },
+  );
 
   it("skips unavailable generation and PDF factories from snapshot and run auth facts", () => {
     const config: OpenClawConfig = {};

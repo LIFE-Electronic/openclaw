@@ -3,6 +3,16 @@ import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { modelsHandlers } from "./models.js";
 
+const pluginCatalog = vi.hoisted(() => ({
+  load: vi.fn(
+    async () =>
+      [] as Array<{ provider: string; id: string; name: string; input: Array<"text" | "image"> }>,
+  ),
+}));
+vi.mock("../../agents/configured-plugin-catalog.js", () => ({
+  loadConfiguredPluginModelCatalog: pluginCatalog.load,
+}));
+
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -23,6 +33,52 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 describe("models.list", () => {
+  it.each(["default", "configured"])(
+    "includes authenticated plugin catalog in %s view",
+    async (view) => {
+      const model = {
+        provider: "bluehouse",
+        id: "future-vision",
+        name: "Remote vision",
+        input: ["text", "image"] as Array<"text" | "image">,
+      };
+      pluginCatalog.load.mockResolvedValueOnce([model]);
+      const respond = vi.fn();
+      await modelsHandlers["models.list"]({
+        req: { type: "req", id: "plugin-catalog", method: "models.list", params: { view } },
+        params: { view },
+        respond,
+        client: null,
+        isWebchatConnect: () => false,
+        context: {
+          getRuntimeConfig: () => ({
+            agents: { defaults: { models: { "bluehouse/*": {} } } },
+            models: {
+              providers: {
+                bluehouse: {
+                  baseUrl: "https://bluehouse.test/v1",
+                  models: [
+                    {
+                      ...model,
+                      reasoning: false,
+                      input: ["text"],
+                      contextWindow: 200000,
+                      maxTokens: 8192,
+                      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          loadGatewayModelCatalog: async () => [],
+          logGateway: { debug: vi.fn() },
+        } as never,
+      });
+      expect(respond).toHaveBeenCalledWith(true, { models: [model] }, undefined);
+    },
+  );
+
   it("does not block the configured view on slow model catalog discovery", async () => {
     const catalog = createDeferred<never>();
     const respond = vi.fn();
