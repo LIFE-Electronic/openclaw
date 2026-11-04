@@ -49,23 +49,27 @@ confirm whether an agent has a usable `openai-codex` auth profile for
 Notes:
 
 - `models set <model-or-alias>` accepts `provider/model` or an alias.
-- `models list` is read-only: it reads config, auth profiles, existing catalog
-  state, and provider-owned catalog rows, but it does not rewrite
-  `models.json`.
+- `models list` reads config, auth profiles, existing catalog state, and
+  provider-owned catalog rows. For enabled external plugins with configured
+  provider blocks and plugin-managed authentication, it runs scoped catalog
+  discovery and may update generated `models.json`. The authored config stays
+  unchanged. An empty provider `models: []` does not hide its discovered models.
 - The `Auth` column is provider-level and read-only. It is computed from local
   auth profile metadata, env markers, configured provider keys, local-provider
   markers, AWS Bedrock env/profile markers, and plugin synthetic-auth metadata;
-  it does not load provider runtime, read keychain secrets, call provider
-  APIs, or prove exact per-model execution readiness.
+  it does not prove exact per-model execution readiness. Loading a configured
+  external plugin's catalog can resolve credentials and call its discovery API;
+  listing models does not send an inference probe.
 - `models list --all --provider <id>` can include provider-owned static catalog
   rows from plugin manifests or bundled provider catalog metadata even when you
   have not authenticated with that provider yet. Those rows still show as
   unavailable until matching auth is configured.
-- `models list` keeps the control plane responsive while provider catalog
-  discovery is slow. The default and configured views fall back to configured or
-  synthetic model rows after a short wait and let discovery finish in the
-  background. Use `--all` when you need the exact full discovered catalog and
-  are willing to wait for provider discovery.
+- For configured external plugins, `models list` waits for scoped authenticated
+  discovery so catalog capabilities and context windows take precedence over
+  configured placeholders. No prior `--all` call is needed. Other default and
+  configured catalog sources can fall back to configured or synthetic model rows
+  after a short wait and let discovery finish in the background. Use `--all` for
+  the full catalog beyond configured/auth-available models.
 - Broad `models list --all` merges manifest catalog rows over registry rows
   without loading provider runtime supplement hooks. Provider-filtered manifest
   fast paths use only providers marked `static`; providers marked `refreshable`

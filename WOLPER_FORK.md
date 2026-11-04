@@ -88,6 +88,38 @@ adds installed-copy verification to the guarded fork image workflow. Its
 temporary state; fresh provisioning and live transport acceptance remain
 separate checks.
 
+## External provider catalogs and image selection
+
+Configured, enabled external provider plugins supply their authenticated catalog
+to `openclaw models list` without `--all` or a prior discovery command. Bare
+`openclaw models` remains the status command. Gateway `models.list` uses the same
+metadata for default/configured/all views. This lets Wolper keep BlueHouse's
+provider block as a context hint with `models: []`; model capabilities and context
+windows come from the backend catalog instead of configured placeholders.
+
+`src/agents/configured-plugin-catalog.ts` uses scoped
+`ensureOpenClawModelsJson` discovery and the native registry. Only enabled external
+providers with authored provider blocks and plugin-managed authentication are
+eligible. Browse projections omit credentials and runtime headers. The CLI's
+configured model tags and aliases remain intact.
+
+Without an explicit image model, the image tool defers selection until execution
+and reads vision capabilities from this catalog. It prefers a vision-capable chat
+primary, then chat fallbacks, then other vision models from the primary's
+provider, before the existing automatic image defaults. Explicit image settings
+remain authoritative. This fix adds neither an image-default setting nor a
+catalog-reload RPC.
+
+Focused coverage lives in `src/agents/configured-plugin-catalog.test.ts`,
+`src/commands/models/list.list-command.forward-compat.test.ts`,
+`src/gateway/server-methods/models.test.ts`, and the image-tool tests. Wolper's
+`scripts/openclaw/catalog-vision-probe.mjs` additionally exercises the compiled
+CLI, all three Gateway views, and a real image-tool request against a local model
+double with the actual BlueHouse plugin and no `imageModel`. Candidate image
+acceptance, fresh-container assertions, and guarded explicit-target activation
+are documented in
+[Wolper PR 134](https://github.com/LIFE-Electronic/wolper/pull/134).
+
 ## Verify source changes
 
 With Node 24.22.1, run the native contracts without installing dependencies:

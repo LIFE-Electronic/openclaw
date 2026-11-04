@@ -405,7 +405,7 @@ export async function appendModelCatalogRows(params: {
   rows: ModelRow[];
   context: RowBuilderContext;
   seenKeys: Set<string>;
-  catalogRows: readonly NormalizedModelCatalogRow[];
+  catalogRows: ReadonlyArray<Parameters<typeof toManifestCatalogListModel>[0]>;
 }): Promise<number> {
   let appended = 0;
   for (const catalogRow of params.catalogRows) {
