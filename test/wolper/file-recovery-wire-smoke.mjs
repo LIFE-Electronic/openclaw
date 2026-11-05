@@ -21,6 +21,13 @@ let logs = "";
 
 const upstream = createServer(async (request, response) => {
   try {
+    if (request.method === "GET" && request.url === "/v1/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({ object: "list", data: [{ id: "recovery-model", object: "model" }] }),
+      );
+      return;
+    }
     assert.equal(request.url, "/v1/chat/completions");
     let input = "";
     for await (const chunk of request) input += chunk;

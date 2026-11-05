@@ -510,6 +510,9 @@ describe("handleToolExecutionEnd mutating failure recovery", () => {
         const edit = recovery.wrap(
           {
             name: "edit",
+            label: "edit",
+            description: "Fixture edit",
+            parameters: { type: "object", properties: {} },
             execute: async () => {
               throw new Error("mismatch");
             },
@@ -533,6 +536,9 @@ describe("handleToolExecutionEnd mutating failure recovery", () => {
         const exec = recovery.wrap(
           {
             name: "exec",
+            label: "exec",
+            description: "Fixture exec",
+            parameters: { type: "object", properties: {} },
             execute: async () => {
               await fs.writeFile(file, "after");
               return { content: [], details: { status: "completed", exitCode: 0 } };
