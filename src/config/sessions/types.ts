@@ -370,6 +370,8 @@ export type SessionEntry = {
   compactionCount?: number;
   /** Completion time shared by manual and automatic compaction recovery. */
   lastCompactionAt?: number;
+  /** Native message boundary captured before maintenance inference. */
+  lastCompactionContextRevision?: string;
   compactionCheckpoints?: SessionCompactionCheckpoint[];
   memoryFlushAt?: number;
   memoryFlushCompactionCount?: number;

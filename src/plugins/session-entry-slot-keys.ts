@@ -95,6 +95,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "contextBudgetStatus",
   "compactionCount",
   "lastCompactionAt",
+  "lastCompactionContextRevision",
   "compactionCheckpoints",
   "memoryFlushAt",
   "memoryFlushCompactionCount",
