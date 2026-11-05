@@ -39,11 +39,14 @@ export class CompactionOperations {
     try {
       receipt = JSON.parse(await readFile(this.path(id), "utf8")) as CompactionReceipt;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return undefined;
+      }
       throw error;
     }
-    if (receipt.operationId !== id || receipt.key !== key)
+    if (receipt.operationId !== id || receipt.key !== key) {
       throw new Error("Compaction identity conflict");
+    }
     if (receipt.state === "running" && receipt.bootId !== bootId) {
       receipt = { ...receipt, state: "interrupted" };
       await this.save(receipt);
@@ -65,16 +68,22 @@ export class CompactionOperations {
     await previous;
     try {
       const existing = await this.status(id, key);
-      if (existing) return existing;
+      if (existing) {
+        return existing;
+      }
       const receipt: CompactionReceipt = {
         operationId: id,
         key,
         bootId,
         state: this.busy(key) || busy() ? "skipped" : "running",
       };
-      if (receipt.state === "skipped") receipt.result = { compacted: false, reason: "busy" };
+      if (receipt.state === "skipped") {
+        receipt.result = { compacted: false, reason: "busy" };
+      }
       await this.save(receipt);
-      if (receipt.state !== "running") return receipt;
+      if (receipt.state !== "running") {
+        return receipt;
+      }
       this.active.add(key);
       const task = (async () => {
         let final: CompactionReceipt;
@@ -85,7 +94,9 @@ export class CompactionOperations {
             | undefined;
           // An acknowledgement, timeout, or lost native notification is not proof
           // of completion. Keep the gate until a terminal result or Gateway restart.
-          if (nested?.details?.pending === true) return;
+          if (nested?.details?.pending === true) {
+            return;
+          }
           final = {
             ...receipt,
             state:

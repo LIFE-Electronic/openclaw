@@ -14,6 +14,7 @@ import type {
   ToolProgressDetailMode,
   ToolResultFormat,
 } from "./embedded-agent-subscribe.shared-types.js";
+import type { FileMutationRecovery } from "./file-mutation-recovery.js";
 import type { AgentInternalEvent } from "./internal-events.js";
 import type { AgentSession } from "./sessions/index.js";
 export type {
@@ -25,6 +26,7 @@ export type {
 export type SubscribeEmbeddedAgentSessionParams = {
   session: AgentSession;
   runId: string;
+  fileMutationRecovery?: FileMutationRecovery;
   /** Originating message channel used for subsystem log attribution. */
   messageChannel?: string;
   initialReplayState?: EmbeddedRunReplayState;

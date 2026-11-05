@@ -142,6 +142,7 @@ import {
 import { countActiveToolExecutions } from "../../embedded-agent-subscribe.handlers.tools.js";
 import { subscribeEmbeddedAgentSession } from "../../embedded-agent-subscribe.js";
 import { isTimeoutError } from "../../failover-error.js";
+import { FileMutationRecovery } from "../../file-mutation-recovery.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../../heartbeat-system-prompt.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
 import { filterLocalModelLeanTools, isLocalModelLeanEnabled } from "../../local-model-lean.js";
@@ -1054,11 +1055,13 @@ export async function runEmbeddedAttempt(
         ? createToolSearchCatalogRef()
         : undefined;
     const toolSearchTargetTranscriptProjections: ToolSearchTargetTranscriptProjection[] = [];
+    const fileMutationRecovery = new FileMutationRecovery();
     const toolsRaw = !shouldConstructTools
       ? []
       : (() => {
           const allTools = createOpenClawCodingTools({
             agentId: sessionAgentId,
+            fileMutationRecovery,
             ...buildEmbeddedAttemptToolRunContext({ ...params, trace: runTrace }),
             exec: {
               ...params.execOverrides,
@@ -2944,6 +2947,7 @@ export async function runEmbeddedAttempt(
         buildEmbeddedSubscriptionParams({
           session: activeSession,
           runId: params.runId,
+          fileMutationRecovery,
           messageChannel: runtimeChannel,
           initialReplayState: params.initialReplayState,
           hookRunner: getGlobalHookRunner() ?? undefined,

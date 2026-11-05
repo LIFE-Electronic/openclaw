@@ -1,9 +1,13 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { AgentEvent } from "openclaw/plugin-sdk/agent-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   onAgentEvent as registerAgentEventListener,
   resetAgentEventsForTest,
 } from "../infra/agent-events.js";
+import type { AnyAgentTool } from "./agent-tools.types.js";
 import type { MessagingToolSend } from "./embedded-agent-messaging.types.js";
 import {
   handleToolExecutionEnd,
@@ -14,6 +18,7 @@ import type {
   ToolCallSummary,
   ToolHandlerContext,
 } from "./embedded-agent-subscribe.handlers.types.js";
+import { FileMutationRecovery } from "./file-mutation-recovery.js";
 
 type ToolExecutionStartEvent = Extract<AgentEvent, { type: "tool_execution_start" }>;
 type ToolExecutionEndEvent = Extract<AgentEvent, { type: "tool_execution_end" }>;
@@ -491,6 +496,96 @@ describe("handleToolExecutionEnd mutating failure recovery", () => {
       middlewareError: true,
     });
   });
+
+  it.each([false, true])(
+    "only clears the file failure identified by execution evidence (newer failure: %s)",
+    async (newerFailure) => {
+      const { ctx } = createTestContext();
+      const recovery = new FileMutationRecovery();
+      ctx.params.fileMutationRecovery = recovery;
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "recovery-handler-"));
+      const file = path.join(root, "state.json");
+      try {
+        await fs.writeFile(file, "before");
+        const edit = recovery.wrap(
+          {
+            name: "edit",
+            label: "edit",
+            description: "Fixture edit",
+            parameters: { type: "object", properties: {} },
+            execute: async () => {
+              throw new Error("mismatch");
+            },
+          } as AnyAgentTool,
+          { workspaceDir: root, cwd: root, localExec: true },
+        );
+        await handleToolExecutionStart(ctx, {
+          type: "tool_execution_start",
+          toolName: "edit",
+          toolCallId: "failed-edit",
+          args: { path: file },
+        } as never);
+        await expect(edit.execute("failed-edit", { path: file })).rejects.toThrow("mismatch");
+        await handleToolExecutionEnd(ctx, {
+          type: "tool_execution_end",
+          toolName: "edit",
+          toolCallId: "failed-edit",
+          isError: true,
+          result: { error: "mismatch" },
+        } as never);
+        const exec = recovery.wrap(
+          {
+            name: "exec",
+            label: "exec",
+            description: "Fixture exec",
+            parameters: { type: "object", properties: {} },
+            execute: async () => {
+              await fs.writeFile(file, "after");
+              return { content: [], details: { status: "completed", exitCode: 0 } };
+            },
+          } as AnyAgentTool,
+          { workspaceDir: root, cwd: root, localExec: true },
+        );
+        await handleToolExecutionStart(ctx, {
+          type: "tool_execution_start",
+          toolName: "exec",
+          toolCallId: "recovery",
+          args: { command: "python update.py" },
+        } as never);
+        const result = await exec.execute("recovery", {});
+        if (newerFailure) {
+          await handleToolExecutionStart(ctx, {
+            type: "tool_execution_start",
+            toolName: "write",
+            toolCallId: "new-failure",
+            args: { path: path.join(root, "other") },
+          } as never);
+          await handleToolExecutionEnd(ctx, {
+            type: "tool_execution_end",
+            toolName: "write",
+            toolCallId: "new-failure",
+            isError: true,
+            result: { error: "permission denied" },
+          } as never);
+        }
+        await handleToolExecutionEnd(ctx, {
+          type: "tool_execution_end",
+          toolName: "exec",
+          toolCallId: "recovery",
+          isError: false,
+          result,
+        } as never);
+        if (newerFailure) {
+          expect(ctx.state.lastToolError?.toolName).toBe("write");
+        } else {
+          expect(ctx.state.lastToolError).toBeUndefined();
+        }
+        expect(ctx.state.replayState.hadPotentialSideEffects).toBe(true);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("clears edit failure when the retry succeeds through common file path aliases", async () => {
     const { ctx } = createTestContext();

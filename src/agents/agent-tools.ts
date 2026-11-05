@@ -62,6 +62,7 @@ import type { ProcessToolDefaults } from "./bash-tools.process.js";
 import { execSchema, processSchema } from "./bash-tools.schemas.js";
 import { listChannelAgentTools } from "./channel-tools.js";
 import { shouldSuppressManagedWebSearchTool } from "./codex-native-web-search.js";
+import type { FileMutationRecovery } from "./file-mutation-recovery.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import { filterLocalModelLeanTools } from "./local-model-lean.js";
 import type { ModelAuthMode } from "./model-auth.js";
@@ -383,6 +384,7 @@ export type OpenClawCodingToolConstructionPlan = {
 
 export function createOpenClawCodingTools(options?: {
   agentId?: string;
+  fileMutationRecovery?: FileMutationRecovery;
   exec?: ExecToolDefaults & ProcessToolDefaults;
   messageProvider?: string;
   agentAccountId?: string;
@@ -1116,9 +1118,15 @@ export function createOpenClawCodingTools(options?: {
     }),
   );
   options?.recordToolPrepStage?.("schema-normalization");
+  const execHost = options?.exec?.host ?? execConfig.host;
+  const localExec = !sandbox && (execHost == null || execHost === "auto" || execHost === "gateway");
   const withHooks = normalized.map((tool) =>
     wrapToolWithBeforeToolCallHook(
-      tool,
+      options?.fileMutationRecovery?.wrap(tool, {
+        workspaceDir: workspaceRoot,
+        cwd: codingRoot,
+        localExec: localExec && !getPluginToolMeta(tool),
+      }) ?? tool,
       {
         agentId,
         ...(options?.config ? { config: options.config } : {}),
