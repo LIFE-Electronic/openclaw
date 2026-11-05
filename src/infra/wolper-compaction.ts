@@ -9,7 +9,7 @@ export type CompactionReceipt = {
   key: string;
   bootId: string;
   state: "running" | "completed" | "skipped" | "failed" | "interrupted";
-  result?: { sessionId?: string; compacted: boolean; reason?: string };
+  result?: { contextRevision?: string; sessionId?: string; compacted: boolean; reason?: string };
 };
 
 export class CompactionOperations {
@@ -103,6 +103,9 @@ export class CompactionOperations {
               result.ok === false ? "failed" : result.compacted === true ? "completed" : "skipped",
             result: {
               compacted: result.compacted === true,
+              ...(typeof result.contextRevision === "string"
+                ? { contextRevision: result.contextRevision }
+                : {}),
               ...(result.reason === "busy" ? { reason: "busy" } : {}),
               ...(nested?.sessionId ? { sessionId: nested.sessionId } : {}),
             },

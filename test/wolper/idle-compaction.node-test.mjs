@@ -1,3 +1,4 @@
+import "./native-context.node-test.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ test("durable operation replay does not compact twice; busy does not invoke comp
     const run = async () => {
       calls++;
       await gate;
-      return { ok: true, compacted: true };
+      return { ok: true, compacted: true, contextRevision: "epoch:covered" };
     };
     assert.equal((await ops.start("one", "session", () => false, run)).state, "running");
     assert.equal((await ops.start("one", "session", () => false, run)).state, "running");
@@ -29,6 +30,7 @@ test("durable operation replay does not compact twice; busy does not invoke comp
       (await new CompactionOperations(root).start("one", "session", () => false, run)).state,
       "completed",
     );
+    assert.equal((await ops.status("one", "session")).result.contextRevision, "epoch:covered");
     assert.equal(calls, 1);
     assert.equal((await ops.start("busy", "other", () => true, run)).state, "skipped");
     assert.equal(calls, 1);

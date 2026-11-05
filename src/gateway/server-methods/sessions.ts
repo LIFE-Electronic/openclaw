@@ -61,6 +61,7 @@ import {
   measureDiagnosticsTimelineSpanSync,
 } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { readCompactionContext } from "../../infra/wolper-compaction-context.js";
 import { CompactionOperations } from "../../infra/wolper-compaction.js";
 import { patchPluginSessionExtension } from "../../plugins/host-hook-state.js";
 import { isPluginJsonValue } from "../../plugins/host-hooks.js";
@@ -2328,7 +2329,19 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         }) ||
         Boolean(entry?.sessionId && isEmbeddedAgentRunActive(entry.sessionId)) ||
         row?.hasActiveSubagentRun === true,
+      ...(entry?.sessionId
+        ? await readCompactionContext(
+            resolveSessionTranscriptCandidates(
+              entry.sessionId,
+              storePath,
+              entry.sessionFile,
+              target.agentId,
+            ).find((candidate) => fs.existsSync(candidate)),
+            entry.sessionId,
+          )
+        : { contextRevision: null, contextUpdatedAt: null }),
       lastCompactionAt: entry?.lastCompactionAt ?? null,
+      coveredContextRevision: entry?.lastCompactionContextRevision ?? null,
       usedTokens: row?.totalTokens ?? null,
       windowTokens: row?.contextTokens ?? null,
       fresh: row?.totalTokensFresh === true,
@@ -2485,6 +2498,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         phase: "start",
         sessionKey: target.canonicalKey,
       });
+      // Capture conservatively before native inference, never from a later status
+      // response which could already contain a new heartbeat or user turn.
+      const compactContext = await readCompactionContext(filePath, sessionId);
       let result: Awaited<ReturnType<typeof compactEmbeddedAgentSession>>;
       try {
         result = await compactEmbeddedAgentSession({
@@ -2539,6 +2555,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           entryToUpdate.updatedAt = Date.now();
           entryToUpdate.compactionCount = Math.max(0, entryToUpdate.compactionCount ?? 0) + 1;
           entryToUpdate.lastCompactionAt = Date.now();
+          entryToUpdate.lastCompactionContextRevision = compactContext.contextRevision ?? undefined;
           if (result.result?.sessionId && result.result.sessionId !== entryToUpdate.sessionId) {
             entryToUpdate.sessionId = result.result.sessionId;
           }
@@ -2567,6 +2584,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           ok: result.ok,
           key: target.canonicalKey,
           compacted: result.compacted,
+          contextRevision: compactContext.contextRevision,
           reason: result.reason,
           result: result.result,
         },
@@ -2621,6 +2639,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       delete entryToUpdate.contextBudgetStatus;
       entryToUpdate.updatedAt = Date.now();
       entryToUpdate.lastCompactionAt = Date.now();
+      delete entryToUpdate.lastCompactionContextRevision;
     });
 
     respond(
