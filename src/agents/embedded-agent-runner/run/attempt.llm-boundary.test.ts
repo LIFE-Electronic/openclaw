@@ -416,10 +416,10 @@ describe("normalizeMessagesForLlmBoundary", () => {
         ] as Messages,
       ]) {
         const output = await session.agent.transformContext(input);
-        expect(output[0]?.content).toEqual([{ type: "text", text: marker }]);
-        expect(output[1]?.content).toEqual([{ type: "text", text: wake }]);
+        expect(output[0]).toMatchObject({ content: [{ type: "text", text: marker }] });
+        expect(output[1]).toMatchObject({ content: [{ type: "text", text: wake }] });
       }
-      expect(messages[1]?.content).toEqual([{ type: "text", text: marker }]);
+      expect(messages[1]).toMatchObject({ content: [{ type: "text", text: marker }] });
     } finally {
       cleanup();
     }

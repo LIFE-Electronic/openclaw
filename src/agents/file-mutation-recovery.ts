@@ -99,7 +99,9 @@ export class FileMutationRecovery {
           this.recordFailure(tool.name, callId, args, context);
           throw error;
         } finally {
-          if (mutating) this.activeMutations.delete(callId);
+          if (mutating) {
+            this.activeMutations.delete(callId);
+          }
         }
       },
     };

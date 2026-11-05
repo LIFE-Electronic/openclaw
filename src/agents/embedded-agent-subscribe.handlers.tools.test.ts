@@ -575,8 +575,11 @@ describe("handleToolExecutionEnd mutating failure recovery", () => {
           isError: false,
           result,
         } as never);
-        if (newerFailure) expect(ctx.state.lastToolError?.toolName).toBe("write");
-        else expect(ctx.state.lastToolError).toBeUndefined();
+        if (newerFailure) {
+          expect(ctx.state.lastToolError?.toolName).toBe("write");
+        } else {
+          expect(ctx.state.lastToolError).toBeUndefined();
+        }
         expect(ctx.state.replayState.hadPotentialSideEffects).toBe(true);
       } finally {
         await fs.rm(root, { recursive: true, force: true });

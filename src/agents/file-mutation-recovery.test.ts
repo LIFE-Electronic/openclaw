@@ -60,9 +60,12 @@ describe("file mutation recovery", () => {
     async (scenario) => {
       await fail();
       const exec = tool("exec", async () => {
-        if (scenario === "different file")
+        if (scenario === "different file") {
           await fs.writeFile(path.join(root, "other.json"), "changed");
-        if (scenario === "mtime only") await fs.utimes(target, new Date(), new Date());
+        }
+        if (scenario === "mtime only") {
+          await fs.utimes(target, new Date(), new Date());
+        }
         return completed;
       });
       await exec.execute("exec", {});
@@ -119,13 +122,19 @@ describe("file mutation recovery", () => {
     "keeps unverifiable %s targets unresolved",
     async (scenario) => {
       let file = target;
-      if (scenario === "outside") file = path.join(root, "..", "outside-recovery-proof");
+      if (scenario === "outside") {
+        file = path.join(root, "..", "outside-recovery-proof");
+      }
       if (scenario === "symlink") {
         file = path.join(root, "link");
         await fs.symlink(target, file);
       }
-      if (scenario === "large") await fs.writeFile(file, Buffer.alloc(1024 * 1024 + 1));
-      if (scenario === "missing") await fs.unlink(file);
+      if (scenario === "large") {
+        await fs.writeFile(file, Buffer.alloc(1024 * 1024 + 1));
+      }
+      if (scenario === "missing") {
+        await fs.unlink(file);
+      }
       await fail(file);
       await tool("exec", async () => {
         await fs.writeFile(target, "changed");
