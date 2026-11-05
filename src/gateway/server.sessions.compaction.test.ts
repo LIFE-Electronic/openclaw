@@ -642,7 +642,11 @@ test("backend manual compaction exposes its input boundary and leaves later mess
     client: { id: "cli", version: "test", platform: "test", mode: "backend" },
   });
   const before = Date.now();
-  const result = await rpcReq<{ contextRevision: string }>(ws, "sessions.compact", { key: "main" });
+  const result = await rpcReq<{ contextRevision: string; completedAt: number }>(
+    ws,
+    "sessions.compact",
+    { key: "main" },
+  );
   expect(result.ok).toBe(true);
   expect(result.payload?.contextRevision).toBe("manual:before");
   expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
@@ -658,6 +662,7 @@ test("backend manual compaction exposes its input boundary and leaves later mess
   });
   expect(status.ok, JSON.stringify(status)).toBe(true);
   expect(status.payload?.lastCompactionAt).toBeGreaterThanOrEqual(before);
+  expect(result.payload?.completedAt).toBe(status.payload?.lastCompactionAt);
   expect(status.payload?.contextRevision).toBe("manual:before");
   expect(status.payload?.coveredContextRevision).toBe("manual:before");
   await fs.appendFile(path.join(dir, "manual.jsonl"), message("after"));
@@ -665,4 +670,45 @@ test("backend manual compaction exposes its input boundary and leaves later mess
   expect(later.payload?.contextRevision).toBe("manual:after");
   expect(later.payload?.coveredContextRevision).toBe("manual:before");
   ws.close();
+});
+
+test("compaction maps retained message coverage into the successor session without covering new output", async () => {
+  const { dir } = await createSessionStoreDir();
+  const line = (id: string) =>
+    JSON.stringify({
+      type: "message",
+      id,
+      timestamp: new Date().toISOString(),
+      message: { role: "assistant", content: "hello" },
+    }) + "\n";
+  await fs.writeFile(path.join(dir, "previous.jsonl"), line("input"));
+  await writeSessionStore({ entries: { main: sessionStoreEntry("previous") } });
+  const successor = path.join(dir, "successor.jsonl");
+  embeddedRunMock.compactEmbeddedAgentSession.mockImplementationOnce(async () => {
+    await fs.writeFile(successor, line("input") + line("later"));
+    return {
+      ok: true,
+      compacted: true,
+      result: { sessionId: "successor", sessionFile: successor },
+    };
+  });
+  const { ws } = await openClient({
+    client: { id: "cli", version: "test", platform: "test", mode: "backend" },
+  });
+  try {
+    const result = await rpcReq<{ contextRevision: string }>(ws, "sessions.compact", {
+      key: "main",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.payload?.contextRevision).toBe("successor:input");
+    const status = await rpcReq<{ contextRevision: string; coveredContextRevision: string }>(
+      ws,
+      "sessions.compaction.status",
+      { key: "main" },
+    );
+    expect(status.payload?.contextRevision).toBe("successor:later");
+    expect(status.payload?.coveredContextRevision).toBe("successor:input");
+  } finally {
+    ws.close();
+  }
 });

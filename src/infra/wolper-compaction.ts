@@ -9,6 +9,7 @@ export type CompactionReceipt = {
   key: string;
   bootId: string;
   state: "running" | "completed" | "skipped" | "failed" | "interrupted";
+  completedAt?: number;
   result?: { contextRevision?: string; sessionId?: string; compacted: boolean; reason?: string };
 };
 
@@ -48,7 +49,7 @@ export class CompactionOperations {
       throw new Error("Compaction identity conflict");
     }
     if (receipt.state === "running" && receipt.bootId !== bootId) {
-      receipt = { ...receipt, state: "interrupted" };
+      receipt = { ...receipt, state: "interrupted", completedAt: Date.now() };
       await this.save(receipt);
     }
     return receipt;
@@ -79,6 +80,7 @@ export class CompactionOperations {
       };
       if (receipt.state === "skipped") {
         receipt.result = { compacted: false, reason: "busy" };
+        receipt.completedAt = Date.now();
       }
       await this.save(receipt);
       if (receipt.state !== "running") {
@@ -99,6 +101,11 @@ export class CompactionOperations {
           }
           final = {
             ...receipt,
+            // Persist native completion time, never the later status/replay time.
+            completedAt:
+              typeof result.completedAt === "number" && Number.isFinite(result.completedAt)
+                ? result.completedAt
+                : Date.now(),
             state:
               result.ok === false ? "failed" : result.compacted === true ? "completed" : "skipped",
             result: {
@@ -111,7 +118,7 @@ export class CompactionOperations {
             },
           };
         } catch {
-          final = { ...receipt, state: "failed" };
+          final = { ...receipt, state: "failed", completedAt: Date.now() };
         }
         // A lost receipt must remain unresolved, never silently allow a repeat.
         await this.save(final);

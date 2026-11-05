@@ -2536,6 +2536,14 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         });
         throw err;
       }
+      const completedAt = Date.now();
+      const successorId =
+        result.ok && result.compacted ? (result.result?.sessionId ?? sessionId) : sessionId;
+      // Rotation preserves retained message IDs. Translate the captured input
+      // boundary into its successor epoch without reading later appended output.
+      const contextRevision = compactContext.contextRevision
+        ? `${successorId}${compactContext.contextRevision.slice(sessionId.length)}`
+        : null;
       emitSessionOperation(context, {
         operationId,
         operation: "compact",
@@ -2554,8 +2562,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           }
           entryToUpdate.updatedAt = Date.now();
           entryToUpdate.compactionCount = Math.max(0, entryToUpdate.compactionCount ?? 0) + 1;
-          entryToUpdate.lastCompactionAt = Date.now();
-          entryToUpdate.lastCompactionContextRevision = compactContext.contextRevision ?? undefined;
+          entryToUpdate.lastCompactionAt = completedAt;
+          entryToUpdate.lastCompactionContextRevision = contextRevision ?? undefined;
           if (result.result?.sessionId && result.result.sessionId !== entryToUpdate.sessionId) {
             entryToUpdate.sessionId = result.result.sessionId;
           }
@@ -2584,7 +2592,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
           ok: result.ok,
           key: target.canonicalKey,
           compacted: result.compacted,
-          contextRevision: compactContext.contextRevision,
+          contextRevision,
+          completedAt,
           reason: result.reason,
           result: result.result,
         },

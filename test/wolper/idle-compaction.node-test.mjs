@@ -18,7 +18,7 @@ test("durable operation replay does not compact twice; busy does not invoke comp
     const run = async () => {
       calls++;
       await gate;
-      return { ok: true, compacted: true, contextRevision: "epoch:covered" };
+      return { ok: true, compacted: true, contextRevision: "epoch:covered", completedAt: 1000 };
     };
     assert.equal((await ops.start("one", "session", () => false, run)).state, "running");
     assert.equal((await ops.start("one", "session", () => false, run)).state, "running");
@@ -31,6 +31,7 @@ test("durable operation replay does not compact twice; busy does not invoke comp
       "completed",
     );
     assert.equal((await ops.status("one", "session")).result.contextRevision, "epoch:covered");
+    assert.equal((await new CompactionOperations(root).status("one", "session")).completedAt, 1000);
     assert.equal(calls, 1);
     assert.equal((await ops.start("busy", "other", () => true, run)).state, "skipped");
     assert.equal(calls, 1);
