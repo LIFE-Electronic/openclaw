@@ -627,26 +627,42 @@ test("sessions.compact idleOnly never interrupts an embedded user turn", async (
   );
 });
 
-test("backend manual compaction waits for completion and exposes its coverage timestamp", async () => {
+test("backend manual compaction exposes its input boundary and leaves later messages uncovered", async () => {
   const { dir } = await createSessionStoreDir();
-  await fs.writeFile(
-    path.join(dir, "manual.jsonl"),
-    JSON.stringify({ role: "user", content: "hello" }) + "\n",
-  );
+  const message = (id: string) =>
+    JSON.stringify({
+      type: "message",
+      id,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: "hello" },
+    }) + "\n";
+  await fs.writeFile(path.join(dir, "manual.jsonl"), message("before"));
   await writeSessionStore({ entries: { main: sessionStoreEntry("manual") } });
   const { ws } = await openClient({
     client: { id: "cli", version: "test", platform: "test", mode: "backend" },
   });
   const before = Date.now();
-  const result = await rpcReq(ws, "sessions.compact", { key: "main" });
+  const result = await rpcReq<{ contextRevision: string }>(ws, "sessions.compact", { key: "main" });
   expect(result.ok).toBe(true);
+  expect(result.payload?.contextRevision).toBe("manual:before");
   expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledWith(
     expect.objectContaining({ waitForCompletion: true }),
   );
-  const status = await rpcReq<{ lastCompactionAt: number }>(ws, "sessions.compaction.status", {
+  type ContextStatus = {
+    lastCompactionAt: number;
+    contextRevision: string;
+    coveredContextRevision: string;
+  };
+  const status = await rpcReq<ContextStatus>(ws, "sessions.compaction.status", {
     key: "main",
   });
   expect(status.ok, JSON.stringify(status)).toBe(true);
   expect(status.payload?.lastCompactionAt).toBeGreaterThanOrEqual(before);
+  expect(status.payload?.contextRevision).toBe("manual:before");
+  expect(status.payload?.coveredContextRevision).toBe("manual:before");
+  await fs.appendFile(path.join(dir, "manual.jsonl"), message("after"));
+  const later = await rpcReq<ContextStatus>(ws, "sessions.compaction.status", { key: "main" });
+  expect(later.payload?.contextRevision).toBe("manual:after");
+  expect(later.payload?.coveredContextRevision).toBe("manual:before");
   ws.close();
 });
