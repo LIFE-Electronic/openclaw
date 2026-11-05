@@ -30,7 +30,9 @@ const upstream = createServer(async (request, response) => {
     }
     assert.equal(request.url, "/v1/chat/completions");
     let input = "";
-    for await (const chunk of request) input += chunk;
+    for await (const chunk of request) {
+      input += chunk;
+    }
     const body = JSON.parse(input);
     const index = phase++;
     let delta;
@@ -102,10 +104,14 @@ const upstream = createServer(async (request, response) => {
 
 async function waitFor(check, description) {
   for (let attempt = 0; attempt < 600; attempt++) {
-    if (failure) throw failure;
+    if (failure) {
+      throw failure;
+    }
     assert.equal(gateway.exitCode, null, logs);
     const result = await check();
-    if (result) return result;
+    if (result) {
+      return result;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`${description}: ${logs}`);
@@ -113,7 +119,9 @@ async function waitFor(check, description) {
 
 async function records(directory) {
   const files = await fs.readdir(directory).catch((error) => {
-    if (error.code === "ENOENT") return [];
+    if (error.code === "ENOENT") {
+      return [];
+    }
     throw error;
   });
   return Promise.all(
@@ -135,7 +143,9 @@ function cli(env, args) {
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.once("error", reject);
     child.once("close", (code) => {
-      if (code !== 0) return reject(new Error(stderr + stdout));
+      if (code !== 0) {
+        return reject(new Error(stderr + stdout));
+      }
       try {
         resolve(JSON.parse(stdout));
       } catch (error) {
@@ -299,16 +309,22 @@ try {
         JSON.stringify(queued),
       );
       const content = flatten(queued.result.message.content);
-      if (mode === "heartbeat" && recovered) assert.equal(content, "HEARTBEAT_OK");
-      else if (recovered) assert.equal(content, "Recovery completed.");
-      else assert.match(content, /Scheduled task failed/);
+      if (mode === "heartbeat" && recovered) {
+        assert.equal(content, "HEARTBEAT_OK");
+      } else if (recovered) {
+        assert.equal(content, "Recovery completed.");
+      } else {
+        assert.match(content, /Scheduled task failed/);
+      }
       if (job) {
         const runs = await rpc("cron.runs", { id: job.id, limit: 1 });
         assert.equal(runs.entries[0].status, "ok", JSON.stringify(runs));
       }
     }
     assert.equal(phase, 4, "all four model rounds must run");
-    if (failure) throw failure;
+    if (failure) {
+      throw failure;
+    }
     gateway.kill("SIGTERM");
     await closed;
     gateway = undefined;
@@ -345,8 +361,12 @@ try {
     }),
   );
 } finally {
-  if (gateway && gateway.exitCode === null) gateway.kill("SIGTERM");
-  if (closed) await closed;
+  if (gateway && gateway.exitCode === null) {
+    gateway.kill("SIGTERM");
+  }
+  if (closed) {
+    await closed;
+  }
   upstream.closeAllConnections();
   await new Promise((resolve) => upstream.close(resolve));
   await fs.rm(root, { recursive: true, force: true });
