@@ -223,6 +223,7 @@ export type EmbeddedAgentSubscribeContext = {
 type ToolHandlerParams = Pick<
   SubscribeEmbeddedAgentSessionParams,
   | "runId"
+  | "fileMutationRecovery"
   | "onBlockReplyFlush"
   | "onAgentEvent"
   | "onExecutionPhase"

@@ -3,6 +3,7 @@ import type { FileTarget } from "./tool-mutation.js";
 
 export type ToolErrorSummary = {
   toolName: string;
+  toolCallId?: string;
   meta?: string;
   errorCode?: string;
   error?: string;

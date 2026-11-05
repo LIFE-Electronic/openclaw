@@ -1173,6 +1173,7 @@ export async function handleToolExecutionEnd(
   const isError = evt.isError;
   const result = evt.result;
   const isToolError = isError || isToolResultError(result);
+  const recoveredCallId = ctx.params.fileMutationRecovery?.consumeRecovery(toolCallId);
   const sanitizedResult = sanitizeToolResult(result);
   const eventResult = isExecToolName(toolName)
     ? capLiveExecResult(sanitizedResult)
@@ -1204,6 +1205,7 @@ export async function handleToolExecutionEnd(
     const errorCode = extractToolErrorCode(sanitizedResult);
     ctx.state.lastToolError = {
       toolName,
+      toolCallId,
       meta,
       ...(errorCode ? { errorCode } : {}),
       error: errorMessage,
@@ -1217,6 +1219,7 @@ export async function handleToolExecutionEnd(
     // Keep unresolved mutating failures until the same action succeeds.
     if (ctx.state.lastToolError.mutatingAction) {
       if (
+        (recoveredCallId !== undefined && recoveredCallId === ctx.state.lastToolError.toolCallId) ||
         isSameToolMutationAction(ctx.state.lastToolError, {
           toolName,
           meta,
@@ -1224,6 +1227,11 @@ export async function handleToolExecutionEnd(
           fileTarget: callSummary?.fileTarget,
         })
       ) {
+        if (recoveredCallId) {
+          ctx.log.debug(
+            `file mutation recovered: failedCallId=${recoveredCallId} recoveryCallId=${toolCallId}`,
+          );
+        }
         ctx.state.lastToolError = undefined;
       }
     } else {

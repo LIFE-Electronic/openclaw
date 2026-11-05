@@ -266,6 +266,21 @@ export function extractFileTarget(toolName: string, args: unknown): FileTarget |
   };
 }
 
+/** Preserve actual path spelling for filesystem verification, unlike display fingerprints. */
+export function extractFileTargetPath(toolName: string, args: unknown): string | undefined {
+  if (!isFileMutatingToolName(toolName)) {
+    return undefined;
+  }
+  const record = asRecord(args);
+  for (const key of FILE_TARGET_PATH_ARG_KEYS) {
+    const value = record?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
 function fileTargetsEqual(a: FileTarget, b: FileTarget): boolean {
   return (a.path ?? "") === (b.path ?? "") && (a.oldpath ?? "") === (b.oldpath ?? "");
 }
