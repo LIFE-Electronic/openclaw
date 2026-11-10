@@ -199,6 +199,22 @@ function startGatewayModelPricingRefreshOnDemand(params: {
   };
 }
 
+function startMediaCompletionDeliveryOnDemand(log: GatewayRuntimeServiceLogger): () => void {
+  let stopped = false;
+  let stop: (() => void) | undefined;
+  void import("../agents/media-completion-runtime.js")
+    .then((runtime) => {
+      if (!stopped) {
+        stop = runtime.startMediaCompletionDelivery();
+      }
+    })
+    .catch((error) => log.error(`Media completion recovery failed to start: ${String(error)}`));
+  return () => {
+    stopped = true;
+    stop?.();
+  };
+}
+
 export function activateGatewayScheduledServices(params: {
   minimalTestGateway: boolean;
   cfgAtStart: OpenClawConfig;
@@ -209,9 +225,17 @@ export function activateGatewayScheduledServices(params: {
   logCron: { error: (message: string) => void };
   log: GatewayRuntimeServiceLogger;
   pluginLookUpTable?: PluginMetadataRegistryView;
-}): { heartbeatRunner: HeartbeatRunner; stopModelPricingRefresh: () => void } {
+}): {
+  heartbeatRunner: HeartbeatRunner;
+  stopModelPricingRefresh: () => void;
+  stopMediaCompletionDelivery: () => void;
+} {
   if (params.minimalTestGateway) {
-    return { heartbeatRunner: createNoopHeartbeatRunner(), stopModelPricingRefresh: () => {} };
+    return {
+      heartbeatRunner: createNoopHeartbeatRunner(),
+      stopModelPricingRefresh: () => {},
+      stopMediaCompletionDelivery: () => {},
+    };
   }
   const heartbeatRunner = startHeartbeatRunner({ cfg: params.cfgAtStart });
   if (params.startCron !== false) {
@@ -236,5 +260,9 @@ export function activateGatewayScheduledServices(params: {
         log: params.log,
       })
     : () => {};
-  return { heartbeatRunner, stopModelPricingRefresh };
+  return {
+    heartbeatRunner,
+    stopModelPricingRefresh,
+    stopMediaCompletionDelivery: startMediaCompletionDeliveryOnDemand(params.log),
+  };
 }

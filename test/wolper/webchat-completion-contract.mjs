@@ -214,11 +214,16 @@ export async function verifyWebchatCompletion(native, identity, original, copy) 
     mediaUrlsFromGeneratedAttachments: (items) => (items ?? []).map((item) => item.path),
     formatAgentInternalEventsForPrompt: (events) => events[0].replyInstruction,
     log: { info() {}, error() {} },
-    tryDeliverMediaGenerationFailureDirect: async () => false,
-    deliverSubagentAnnouncement: async (p) => {
-      assert.match(p.triggerMessage, /normal visible assistant final reply/i);
-      assert.equal(p.internalEvents[0].replyInstruction.includes("requires message-tool"), false);
-      return send(p);
+    enqueueMediaCompletion: async (entry) => {
+      assert.equal(
+        entry.event.status,
+        "ok",
+        "Successful generation must never enqueue a failure event",
+      );
+      assert.match(entry.event.replyInstruction, /normal visible assistant final reply/i);
+      const result = await send({ ...params, internalEvents: [entry.event] });
+      // Visible-media verification remains independent of generation success.
+      assert.equal(result.delivered, response.result === valid);
     },
   });
   const scheduler = await native(mediaFile, "scheduleMediaGenerationTaskCompletion", {
@@ -274,8 +279,8 @@ export async function verifyWebchatCompletion(native, identity, original, copy) 
       await pending[0]();
       assert.equal(
         state,
-        scenario === "visible" ? "completed" : "failed",
-        `Scheduler must not complete a ${scenario} final attachment`,
+        "completed",
+        `Delivery state for ${scenario} must not change generation success`,
       );
     } finally {
       await writeFixture(original, savedOriginal);

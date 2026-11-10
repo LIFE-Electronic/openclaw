@@ -43,6 +43,7 @@ import {
   type MediaIdentity,
 } from "./generated-media-identity.js";
 import type { AgentInternalEvent } from "./internal-events.js";
+import { acceptMediaCompletionInput } from "./media-completion-receipt.js";
 import { isSessionWriteLockTimeoutError } from "./session-write-lock-error.js";
 import {
   callGateway,
@@ -61,6 +62,8 @@ import {
   resolveExternalBestEffortDeliveryTarget,
   resolveQueueSettings,
   resolveStorePath,
+  resolveSessionFilePath,
+  resolveSessionFilePathOptions,
   sendMessage,
 } from "./subagent-announce-delivery.runtime.js";
 import {
@@ -1008,6 +1011,7 @@ async function sendSubagentAnnounceDirectly(params: {
   triggerMessage: string;
   internalEvents?: AgentInternalEvent[];
   expectsCompletionMessage: boolean;
+  completionDelivery?: "session-input";
   bestEffortDeliver?: boolean;
   directIdempotencyKey: string;
   completionDirectOrigin?: DeliveryContext;
@@ -1154,8 +1158,9 @@ async function sendSubagentAnnounceDirectly(params: {
     });
     if (
       params.expectsCompletionMessage &&
-      // Steering only acknowledges queued input, not a visible media reply.
-      !webchatMediaCompletion &&
+      // Media tasks explicitly acknowledge session input; other callers still
+      // require the existing visible-delivery contract.
+      (!webchatMediaCompletion || params.completionDelivery === "session-input") &&
       requesterActivity.sessionId &&
       requesterActivity.isActive
     ) {
@@ -1180,12 +1185,23 @@ async function sendSubagentAnnounceDirectly(params: {
         params.signal,
       );
       if (wakeOutcome.queued) {
+        // Some runtimes can enqueue but cannot confirm transcript persistence.
+        // The media receipt listener must observe the commit in that case.
+        const inputCommitted = wakeOutcome.deliveredAtMs !== undefined;
         return {
-          delivered: true,
+          delivered: params.completionDelivery === "session-input" ? inputCommitted : true,
+          ...(params.completionDelivery === "session-input"
+            ? { sessionInputStatus: inputCommitted ? ("accepted" as const) : ("pending" as const) }
+            : {}),
           deliveredAt: wakeOutcome.deliveredAtMs,
           enqueuedAt: wakeOutcome.enqueuedAtMs,
           path: "steered",
         };
+      }
+      if (params.completionDelivery === "session-input") {
+        // Retain the original event for an idle retry. A second agent RPC here
+        // can race an accepted steer and duplicate the completion input.
+        return { delivered: false, path: "none", sessionInputStatus: "deferred" };
       }
       activeRequesterWakeFailed = true;
       defaultRuntime.log(
@@ -1197,6 +1213,7 @@ async function sendSubagentAnnounceDirectly(params: {
     }
     if (
       params.expectsCompletionMessage &&
+      params.completionDelivery !== "session-input" &&
       isCronRunSessionKey(canonicalRequesterSessionKey) &&
       !resolveRequesterSessionActivity(canonicalRequesterSessionKey).isActive
     ) {
@@ -1255,6 +1272,14 @@ async function sendSubagentAnnounceDirectly(params: {
       idempotencyKey: params.directIdempotencyKey,
     };
     let directAnnounceResponse: unknown;
+    if (params.completionDelivery === "session-input") {
+      await runAnnounceAgentCall({
+        agentParams: directAgentParams,
+        expectFinal: false,
+        timeoutMs: announceTimeoutMs,
+      });
+      return { delivered: false, path: "direct", sessionInputStatus: "pending" };
+    }
     try {
       directAnnounceResponse = await runAnnounceDeliveryWithRetry({
         operation: params.expectsCompletionMessage
@@ -1475,10 +1500,58 @@ export async function deliverSubagentAnnouncement(params: {
   targetRequesterSessionKey: string;
   requesterIsSubagent: boolean;
   expectsCompletionMessage: boolean;
+  completionDelivery?: "session-input";
   bestEffortDeliver?: boolean;
   directIdempotencyKey: string;
   signal?: AbortSignal;
 }): Promise<SubagentAnnounceDeliveryResult> {
+  if (params.completionDelivery === "session-input") {
+    const { cfg, entry, canonicalKey } = loadRequesterSessionEntry(
+      params.targetRequesterSessionKey,
+    );
+    const agentId = resolveAgentIdFromSessionKey(canonicalKey);
+    const sourceSessionKey = params.sourceSessionKey;
+    if (!sourceSessionKey) {
+      return { delivered: false, path: "none", error: "Completion source identity is required" };
+    }
+    const result = await acceptMediaCompletionInput({
+      sessionKey: canonicalKey,
+      sourceSessionKey,
+      triggerMessage: params.triggerMessage,
+      sessionFile: entry?.sessionId
+        ? resolveSessionFilePath(
+            entry.sessionId,
+            entry,
+            resolveSessionFilePathOptions({
+              agentId,
+              storePath: resolveStorePath(cfg.session?.store, { agentId }),
+            }),
+          )
+        : undefined,
+      timeoutMs: resolveSubagentAnnounceTimeoutMs(cfg),
+      dispatch: async () => {
+        const response = await sendSubagentAnnounceDirectly(params);
+        if (response.sessionInputStatus === "accepted") {
+          return { inputAccepted: true };
+        }
+        if (response.sessionInputStatus === "deferred") {
+          return { deferred: true };
+        }
+        if (response.sessionInputStatus === "pending") {
+          return { status: "accepted" };
+        }
+        throw new Error(response.error ?? "Completion input was not accepted");
+      },
+    });
+    return result.status === "accepted"
+      ? { delivered: true, path: "direct", sessionInputStatus: "accepted" }
+      : {
+          delivered: false,
+          path: "direct",
+          ...(result.status === "deferred" ? { sessionInputStatus: "deferred" as const } : {}),
+          error: result.error,
+        };
+  }
   return await runSubagentAnnounceDispatch({
     expectsCompletionMessage: params.expectsCompletionMessage,
     signal: params.signal,

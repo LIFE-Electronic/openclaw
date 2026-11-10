@@ -6,11 +6,14 @@ const hoisted = vi.hoisted(() => {
     updateConfig: vi.fn(),
   };
   const stopModelPricingRefresh = vi.fn();
+  const stopMediaCompletionDelivery = vi.fn();
   return {
     heartbeatRunner,
     startHeartbeatRunner: vi.fn(() => heartbeatRunner),
     startChannelHealthMonitor: vi.fn(() => ({ stop: vi.fn() })),
     stopModelPricingRefresh,
+    stopMediaCompletionDelivery,
+    startMediaCompletionDelivery: vi.fn(() => stopMediaCompletionDelivery),
     startGatewayModelPricingRefresh: vi.fn(() => stopModelPricingRefresh),
     loadModelPricingCacheModule: vi.fn(),
     isVitestRuntimeEnv: vi.fn(() => false),
@@ -19,6 +22,10 @@ const hoisted = vi.hoisted(() => {
     deliverOutboundPayloads: vi.fn(),
   };
 });
+
+vi.mock("../agents/media-completion-runtime.js", () => ({
+  startMediaCompletionDelivery: hoisted.startMediaCompletionDelivery,
+}));
 
 vi.mock("../infra/heartbeat-runner.js", () => ({
   startHeartbeatRunner: hoisted.startHeartbeatRunner,
@@ -69,6 +76,8 @@ describe("server-runtime-services", () => {
     hoisted.startChannelHealthMonitor.mockClear();
     hoisted.startGatewayModelPricingRefresh.mockClear();
     hoisted.stopModelPricingRefresh.mockClear();
+    hoisted.stopMediaCompletionDelivery.mockClear();
+    hoisted.startMediaCompletionDelivery.mockClear();
     hoisted.loadModelPricingCacheModule.mockClear();
     hoisted.isVitestRuntimeEnv.mockReset().mockReturnValue(false);
     hoisted.recoverPendingDeliveries.mockClear();
@@ -144,6 +153,9 @@ describe("server-runtime-services", () => {
     });
     services.stopModelPricingRefresh();
     expect(hoisted.stopModelPricingRefresh).toHaveBeenCalledTimes(1);
+    expect(hoisted.startMediaCompletionDelivery).toHaveBeenCalled();
+    services.stopMediaCompletionDelivery();
+    expect(hoisted.stopMediaCompletionDelivery).toHaveBeenCalled();
   });
 
   it("does not start model pricing refresh after scheduled services stop before import settles", async () => {
