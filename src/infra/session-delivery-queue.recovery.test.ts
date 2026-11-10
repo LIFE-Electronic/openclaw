@@ -10,6 +10,34 @@ import {
 } from "./session-delivery-queue.js";
 
 describe("session-delivery queue recovery", () => {
+  it("lets independent delivery workers select only their own entries", async () => {
+    await withTempDir({ prefix: "openclaw-session-delivery-" }, async (stateDir) => {
+      await enqueueSessionDelivery(
+        { kind: "systemEvent", sessionKey: "agent:main:main", text: "restart" },
+        stateDir,
+      );
+      await enqueueSessionDelivery(
+        {
+          kind: "agentTurn",
+          sessionKey: "agent:main:main",
+          message: "pending",
+          messageId: "pending",
+        },
+        stateDir,
+      );
+      const deliver = vi.fn(async () => undefined);
+      await recoverPendingSessionDeliveries({
+        stateDir,
+        deliver,
+        selectEntry: (entry) => entry.kind === "systemEvent",
+        log: { info() {}, warn() {}, error() {} },
+      });
+      expect(deliver).toHaveBeenCalledOnce();
+      expect((await loadPendingSessionDeliveries(stateDir)).map((entry) => entry.kind)).toEqual([
+        "agentTurn",
+      ]);
+    });
+  });
   it("replays and acks pending entries on recovery", async () => {
     await withTempDir({ prefix: "openclaw-session-delivery-" }, async (tempDir) => {
       await enqueueSessionDelivery(

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 const subagentAnnounceDeliveryMocks = vi.hoisted(() => ({
-  deliverSubagentAnnouncement: vi.fn(),
+  enqueueMediaCompletion: vi.fn(),
 }));
 
-vi.mock("../subagent-announce-delivery.js", () => subagentAnnounceDeliveryMocks);
+vi.mock("../media-completion-runtime.js", () => subagentAnnounceDeliveryMocks);
 
 import {
   createMediaGenerationTaskLifecycle,
@@ -12,7 +12,41 @@ import {
 } from "./media-generate-background-shared.js";
 
 describe("scheduleMediaGenerationTaskCompletion", () => {
-  it("keeps a generated media task active until completion delivery finishes", async () => {
+  it.each(["Image", "Video", "Music"])(
+    "still fails a real %s provider error exactly once",
+    async (kind) => {
+      const scheduled: Array<() => Promise<void>> = [];
+      const error = new Error("provider rejected request");
+      const lifecycle = {
+        createTaskRun: vi.fn(),
+        recordTaskProgress: vi.fn(),
+        completeTaskRun: vi.fn(),
+        failTaskRun: vi.fn(),
+        wakeTaskCompletion: vi.fn(async () => true),
+      };
+      scheduleMediaGenerationTaskCompletion({
+        lifecycle,
+        handle: null,
+        scheduleBackgroundWork: (work) => {
+          scheduled.push(work);
+        },
+        progressSummary: "Generating media",
+        toolName: `${kind} generation`,
+        onWakeFailure: vi.fn(),
+        run: async () => {
+          throw error;
+        },
+      });
+      await scheduled[0]?.();
+      expect(lifecycle.completeTaskRun).not.toHaveBeenCalled();
+      expect(lifecycle.failTaskRun).toHaveBeenCalledExactlyOnceWith({ handle: null, error });
+      expect(lifecycle.wakeTaskCompletion).toHaveBeenCalledOnce();
+      expect(lifecycle.wakeTaskCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "error", result: error.message }),
+      );
+    },
+  );
+  it("completes generation before attempting completion delivery", async () => {
     const order: string[] = [];
     const scheduled: Array<() => Promise<void>> = [];
     const completeTaskRun = vi.fn(() => {
@@ -27,7 +61,7 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
       failTaskRun: vi.fn(),
       wakeTaskCompletion: vi.fn(async () => {
         order.push("wake");
-        expect(completeTaskRun).not.toHaveBeenCalled();
+        expect(completeTaskRun).toHaveBeenCalledOnce();
         return true;
       }),
     };
@@ -61,12 +95,7 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
     expect(scheduled).toHaveLength(1);
     await scheduled[0]?.();
 
-    expect(order).toEqual(["run", "progress", "wake", "complete"]);
-    expect(lifecycle.recordTaskProgress).toHaveBeenCalledWith(
-      expect.objectContaining({
-        progressSummary: "Generated media; delivering completion",
-      }),
-    );
+    expect(order).toEqual(["run", "complete", "wake"]);
     expect(lifecycle.completeTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
         count: 1,
@@ -75,7 +104,7 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
     );
   });
 
-  it("fails a generated media task when completion delivery cannot be confirmed", async () => {
+  it("keeps generation successful when completion delivery cannot be confirmed", async () => {
     const scheduled: Array<() => Promise<void>> = [];
     const lifecycle = {
       createTaskRun: vi.fn(),
@@ -110,23 +139,18 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
 
     await scheduled[0]?.();
 
-    expect(lifecycle.completeTaskRun).not.toHaveBeenCalled();
-    expect(lifecycle.failTaskRun).toHaveBeenCalledWith(
+    expect(lifecycle.completeTaskRun).toHaveBeenCalledOnce();
+    expect(lifecycle.failTaskRun).not.toHaveBeenCalled();
+    expect(lifecycle.wakeTaskCompletion).toHaveBeenCalledOnce();
+    expect(lifecycle.wakeTaskCompletion).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        error: expect.objectContaining({
-          message: "Image generation completion delivery failed after successful generation",
-        }),
-      }),
-    );
-    expect(lifecycle.wakeTaskCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "error",
-        result: "Image generation completion delivery failed after successful generation",
+        status: "ok",
+        result: "generated",
       }),
     );
   });
 
-  it("reports a generated media task failure when completion wake throws", async () => {
+  it("logs a wake exception without announcing a generation failure", async () => {
     const scheduled: Array<() => Promise<void>> = [];
     const wakeError = new Error("requester wake failed");
     const lifecycle = {
@@ -171,28 +195,21 @@ describe("scheduleMediaGenerationTaskCompletion", () => {
         taskId: "task-image-789",
       }),
     );
-    expect(lifecycle.completeTaskRun).not.toHaveBeenCalled();
-    expect(lifecycle.failTaskRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: expect.objectContaining({
-          message: "Image generation completion delivery failed after successful generation",
-        }),
-      }),
-    );
+    expect(lifecycle.completeTaskRun).toHaveBeenCalledOnce();
+    expect(lifecycle.failTaskRun).not.toHaveBeenCalled();
+    expect(lifecycle.wakeTaskCompletion).toHaveBeenCalledOnce();
     expect(lifecycle.wakeTaskCompletion).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        status: "error",
-        result: "Image generation completion delivery failed after successful generation",
+        status: "ok",
+        result: "generated",
       }),
     );
   });
 });
 
 describe("createMediaGenerationTaskLifecycle", () => {
-  it("returns the completion wake delivery result", async () => {
-    subagentAnnounceDeliveryMocks.deliverSubagentAnnouncement.mockResolvedValueOnce({
-      delivered: true,
-    });
+  it("persists the original completion for delivery without waiting for an agent final", async () => {
+    subagentAnnounceDeliveryMocks.enqueueMediaCompletion.mockResolvedValueOnce(undefined);
     const lifecycle = createMediaGenerationTaskLifecycle({
       toolName: "image_generate",
       taskKind: "image_generation",
@@ -222,5 +239,13 @@ describe("createMediaGenerationTaskLifecycle", () => {
         result: "generated",
       }),
     ).resolves.toBe(true);
+    expect(subagentAnnounceDeliveryMocks.enqueueMediaCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "task-image-789",
+        runId: "tool:image_generate:789",
+        idempotencyKey: "image_generate:task-image-789:ok",
+        event: expect.objectContaining({ status: "ok", source: "image_generation" }),
+      }),
+    );
   });
 });

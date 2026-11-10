@@ -204,9 +204,12 @@ export async function recoverPendingSessionDeliveries(opts: {
   stateDir?: string;
   maxRecoveryMs?: number;
   maxEnqueuedAt?: number;
+  selectEntry?: (entry: QueuedSessionDelivery) => boolean;
 }): Promise<SessionDeliveryRecoverySummary> {
   const pending = (await loadPendingSessionDeliveries(opts.stateDir)).filter(
-    (entry) => opts.maxEnqueuedAt == null || entry.enqueuedAt <= opts.maxEnqueuedAt,
+    (entry) =>
+      (opts.maxEnqueuedAt == null || entry.enqueuedAt <= opts.maxEnqueuedAt) &&
+      (opts.selectEntry?.(entry) ?? true),
   );
   if (pending.length === 0) {
     return createEmptyRecoverySummary();
