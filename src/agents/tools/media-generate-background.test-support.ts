@@ -1,228 +1,117 @@
-import { expect, vi } from "vitest";
-
-type MockWithReset = {
-  mockReset(): void;
-  mockResolvedValue?(value: unknown): void;
-};
+import { expect, it, vi } from "vitest";
+import type { MediaCompletionDelivery } from "../../infra/session-delivery-queue-storage.js";
+import type { createMediaGenerationTaskLifecycle } from "./media-generate-background-shared.js";
 
 export const taskExecutorMocks = {
   createRunningTaskRun: vi.fn(),
   recordTaskRunProgressByRunId: vi.fn(),
   completeTaskRunByRunId: vi.fn(),
   failTaskRunByRunId: vi.fn(),
+  setDetachedTaskDeliveryStatusByRunId: vi.fn(),
 };
-
-export const announceDeliveryMocks = {
-  deliverSubagentAnnouncement: vi.fn(),
+export const mediaCompletionMocks = {
+  enqueueMediaCompletion: vi.fn<(entry: MediaCompletionDelivery) => Promise<void>>(),
 };
+export const taskDeliveryRuntimeMocks = { sendMessage: vi.fn() };
 
-export const taskDeliveryRuntimeMocks = {
-  sendMessage: vi.fn(),
-};
+export function resetMediaBackgroundMocks(): void {
+  for (const mock of Object.values(taskExecutorMocks)) {
+    mock.mockReset();
+  }
+  mediaCompletionMocks.enqueueMediaCompletion.mockReset().mockResolvedValue(undefined);
+  taskDeliveryRuntimeMocks.sendMessage.mockReset();
+}
 
-type TaskExecutorBackgroundMocks = {
-  createRunningTaskRun: MockWithReset;
-  recordTaskRunProgressByRunId: MockWithReset;
-  completeTaskRunByRunId: MockWithReset;
-  failTaskRunByRunId: MockWithReset;
-};
-
-type TaskDeliveryBackgroundMocks = {
-  sendMessage: MockWithReset;
-};
-
-type AnnouncementBackgroundMocks = {
-  deliverSubagentAnnouncement: MockWithReset;
-};
-
-type MediaBackgroundResetMocks = {
-  taskExecutorMocks: TaskExecutorBackgroundMocks;
-  taskDeliveryRuntimeMocks: TaskDeliveryBackgroundMocks;
-  announceDeliveryMocks: AnnouncementBackgroundMocks;
-};
-
-type QueuedTaskExpectation = {
-  taskExecutorMocks: TaskExecutorBackgroundMocks;
+export function expectQueuedTaskRun(expected: {
   taskKind: string;
   sourceId: string;
   progressSummary: string;
-};
+}): void {
+  expect(taskExecutorMocks.createRunningTaskRun).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining(expected),
+  );
+}
 
-type ProgressExpectation = {
-  taskExecutorMocks: TaskExecutorBackgroundMocks;
+export function expectRecordedTaskProgress(expected: {
   runId: string;
   progressSummary: string;
-};
-
-type DirectSendExpectation = {
-  sendMessageMock: unknown;
-  channel: string;
-  to: string;
-  threadId: string;
-  content: string;
-  mediaUrls: string[];
-};
-
-type FallbackAnnouncementExpectation = {
-  deliverAnnouncementMock: unknown;
-  requesterSessionKey: string;
-  channel: string;
-  to: string;
-  source: string;
-  announceType: string;
-  resultMediaPath: string;
-  mediaUrls: string[];
-};
-
-type CompletionFixtureParams = {
-  directSend?: boolean;
-  mediaUrls?: string[];
-  result: string;
-  runId: string;
-  taskLabel: string;
-};
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`expected ${label}`);
-  }
-  return value as Record<string, unknown>;
+}): void {
+  expect(taskExecutorMocks.recordTaskRunProgressByRunId).toHaveBeenCalledWith(
+    expect.objectContaining(expected),
+  );
 }
 
-function requireMockFirstParam(mock: unknown, label: string): Record<string, unknown> {
-  const first = (mock as { mock?: { calls?: unknown[][] } }).mock?.calls?.[0]?.[0];
-  return requireRecord(first, label);
-}
+type WakeCompletion = ReturnType<typeof createMediaGenerationTaskLifecycle>["wakeTaskCompletion"];
 
-function requireRecordArray(value: unknown, label: string): Record<string, unknown>[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`expected ${label}`);
-  }
-  return value.map((entry, index) => requireRecord(entry, `${label}[${index}]`));
-}
-
-export function createMediaCompletionFixture({
-  directSend,
-  mediaUrls,
-  result,
-  runId,
-  taskLabel,
-}: CompletionFixtureParams) {
-  return {
-    ...(directSend
-      ? { config: { tools: { media: { asyncCompletion: { directSend: true } } } } }
-      : {}),
-    handle: {
-      taskId: "task-123",
-      runId,
-      requesterSessionKey: "agent:main:discord:direct:123",
-      requesterOrigin: {
-        channel: "discord",
-        to: "channel:1",
-        threadId: "thread-1",
-      },
-      taskLabel,
-    },
-    status: "ok" as const,
-    statusLabel: "completed successfully",
-    result,
-    ...(mediaUrls ? { mediaUrls } : {}),
+/** Exercise each public tool wrapper at the boundary that persists the original session event. */
+export function testMediaCompletionQueue(
+  kind: "image" | "music" | "video",
+  wake: WakeCompletion,
+  mediaPath: string,
+) {
+  const toolName = `${kind}_generate`;
+  const handle = {
+    taskId: "task-123",
+    runId: `tool:${toolName}:abc`,
+    requesterSessionKey: "agent:main:discord:direct:123",
+    requesterOrigin: { channel: "discord", to: "channel:1", threadId: "thread-1" },
+    taskLabel: `generate ${kind} for this thread`,
   };
-}
 
-export function resetMediaBackgroundMocks({
-  taskExecutorMocks,
-  taskDeliveryRuntimeMocks,
-  announceDeliveryMocks,
-}: MediaBackgroundResetMocks): void {
-  taskExecutorMocks.createRunningTaskRun.mockReset();
-  taskExecutorMocks.recordTaskRunProgressByRunId.mockReset();
-  taskExecutorMocks.completeTaskRunByRunId.mockReset();
-  taskExecutorMocks.failTaskRunByRunId.mockReset();
-  taskDeliveryRuntimeMocks.sendMessage.mockReset();
-  taskDeliveryRuntimeMocks.sendMessage.mockResolvedValue?.({
-    channel: "discord",
-    to: "channel:1",
-    via: "direct",
-    mediaUrl: null,
-    result: { messageId: "msg-1" },
-  });
-  announceDeliveryMocks.deliverSubagentAnnouncement.mockReset();
-}
+  it.each([
+    { status: "ok", directSend: false },
+    { status: "ok", directSend: true },
+    { status: "error", directSend: false },
+    { status: "error", directSend: true },
+  ] as const)(
+    "queues the original $status notice with directSend=$directSend",
+    async ({ status, directSend }) => {
+      const success = status === "ok";
+      const result = success
+        ? `Generated ${kind}.\nMEDIA:${mediaPath}`
+        : `${kind} provider unavailable`;
+      const statusLabel = success ? "completed successfully" : "failed";
+      await expect(
+        wake({
+          // Omit the setting in the default case, as existing configs do.
+          ...(directSend
+            ? { config: { tools: { media: { asyncCompletion: { directSend } } } } }
+            : {}),
+          handle,
+          status,
+          statusLabel,
+          result,
+          ...(success ? { mediaUrls: [mediaPath] } : {}),
+        }),
+      ).resolves.toBe(true);
 
-export function expectQueuedTaskRun({
-  taskExecutorMocks,
-  taskKind,
-  sourceId,
-  progressSummary,
-}: QueuedTaskExpectation): void {
-  const params = requireMockFirstParam(
-    taskExecutorMocks.createRunningTaskRun,
-    "createRunningTaskRun params",
+      expect(mediaCompletionMocks.enqueueMediaCompletion).toHaveBeenCalledExactlyOnceWith({
+        kind: "mediaCompletion",
+        toolName,
+        taskId: handle.taskId,
+        runId: handle.runId,
+        idempotencyKey: `${toolName}:${handle.taskId}:${status}`,
+        sessionKey: handle.requesterSessionKey,
+        requesterOrigin: handle.requesterOrigin,
+        event: {
+          type: "task_completion",
+          source: `${kind}_generation`,
+          announceType: `${kind} generation task`,
+          childSessionId: handle.taskId,
+          childSessionKey: `${toolName}:${handle.taskId}`,
+          taskLabel: handle.taskLabel,
+          status,
+          statusLabel,
+          result,
+          ...(success ? { mediaUrls: [mediaPath] } : {}),
+          replyInstruction: expect.stringContaining(
+            success
+              ? "the media must be sent as message-tool attachments"
+              : "put the failure summary in the message",
+          ),
+        },
+      });
+      expect(taskDeliveryRuntimeMocks.sendMessage).not.toHaveBeenCalled();
+    },
   );
-  expect(params.taskKind).toBe(taskKind);
-  expect(params.sourceId).toBe(sourceId);
-  expect(params.progressSummary).toBe(progressSummary);
-}
-
-export function expectRecordedTaskProgress({
-  taskExecutorMocks,
-  runId,
-  progressSummary,
-}: ProgressExpectation): void {
-  const params = requireMockFirstParam(
-    taskExecutorMocks.recordTaskRunProgressByRunId,
-    "recordTaskRunProgressByRunId params",
-  );
-  expect(params.runId).toBe(runId);
-  expect(params.progressSummary).toBe(progressSummary);
-}
-
-export function expectDirectMediaSend({
-  sendMessageMock,
-  channel,
-  to,
-  threadId,
-  content,
-  mediaUrls,
-}: DirectSendExpectation): void {
-  const params = requireMockFirstParam(sendMessageMock, "sendMessage params");
-  expect(params.channel).toBe(channel);
-  expect(params.to).toBe(to);
-  expect(params.threadId).toBe(threadId);
-  expect(params.content).toBe(content);
-  expect(params.mediaUrls).toEqual(mediaUrls);
-}
-
-export function expectFallbackMediaAnnouncement({
-  deliverAnnouncementMock,
-  requesterSessionKey,
-  channel,
-  to,
-  source,
-  announceType,
-  resultMediaPath,
-  mediaUrls,
-}: FallbackAnnouncementExpectation): void {
-  expect(deliverAnnouncementMock).toHaveBeenCalledTimes(1);
-  const params = requireMockFirstParam(
-    deliverAnnouncementMock,
-    "deliverSubagentAnnouncement params",
-  );
-  expect(params.requesterSessionKey).toBe(requesterSessionKey);
-  const requesterOrigin = requireRecord(params.requesterOrigin, "requesterOrigin");
-  expect(requesterOrigin.channel).toBe(channel);
-  expect(requesterOrigin.to).toBe(to);
-  expect(params.expectsCompletionMessage).toBe(true);
-
-  const event = requireRecordArray(params.internalEvents, "internalEvents").find(
-    (candidate) => candidate.source === source && candidate.announceType === announceType,
-  );
-  if (!event) {
-    throw new Error(`expected internal event ${source}/${announceType}`);
-  }
-  expect(event.status).toBe("ok");
-  expect(String(event.result)).toContain(resultMediaPath);
-  expect(event.mediaUrls).toEqual(mediaUrls);
-  expect(String(event.replyInstruction)).toContain("message-tool delivery");
 }
