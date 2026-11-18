@@ -133,6 +133,58 @@ describe("durable media completion queue", () => {
     });
   });
 
+  it("retries the original provider error for the same requester after a worker restart", async () => {
+    await withTempDir({ prefix: "media-completion-" }, async (stateDir) => {
+      let now = Date.now();
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      const { attachments: _attachments, ...event } = completion.event;
+      const failure: MediaCompletionDelivery = {
+        ...completion,
+        idempotencyKey: "image_generate:task-123:error",
+        sessionKey: "agent:main:discord:channel:123",
+        requesterOrigin: { channel: "discord", to: "channel:123", threadId: "thread-1" },
+        event: {
+          ...event,
+          status: "error",
+          statusLabel: "failed",
+          result: "Provider rejected the generation request",
+          replyInstruction: "Send the failure summary in the original thread",
+        },
+      };
+      const deliver = vi
+        .fn<(entry: MediaCompletionDelivery) => Promise<MediaCompletionAcceptance>>()
+        .mockResolvedValueOnce({ status: "failed", error: "requester unavailable" })
+        .mockResolvedValueOnce({ status: "accepted" });
+      const setStatus = vi.fn();
+      const deps = {
+        stateDir,
+        deliver,
+        setStatus,
+        isActive: () => false,
+        isDelivered: () => false,
+      };
+      const first = createMediaCompletionQueue(deps);
+      await first.enqueue(failure);
+      await first.drain();
+      expect(await loadPendingSessionDeliveries(stateDir)).toEqual([
+        expect.objectContaining({ ...failure, retryCount: 1, lastError: "requester unavailable" }),
+      ]);
+      expect(setStatus).toHaveBeenCalledExactlyOnceWith(failure, "pending");
+
+      now += 3_600_000;
+      const recovered = createMediaCompletionQueue(deps);
+      await recovered.drain();
+      await recovered.drain();
+      expect(deliver).toHaveBeenCalledTimes(2);
+      for (const [entry] of deliver.mock.calls) {
+        expect(entry).toMatchObject(failure);
+        expect(entry.event).toEqual(failure.event);
+      }
+      expect(setStatus).toHaveBeenLastCalledWith(expect.objectContaining(failure), "delivered");
+      expect(await loadPendingSessionDeliveries(stateDir)).toEqual([]);
+    });
+  });
+
   it("coalesces overlapping drains and leaves unrelated restart events alone", async () => {
     await withTempDir({ prefix: "media-completion-" }, async (stateDir) => {
       const deliver = vi.fn(
