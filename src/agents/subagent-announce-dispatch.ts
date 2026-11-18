@@ -6,6 +6,7 @@ type SubagentAnnounceSteerOutcome =
 
 export type SubagentAnnounceDeliveryResult = {
   delivered: boolean;
+  sessionInputStatus?: "accepted" | "pending" | "deferred";
   path: SubagentDeliveryPath;
   deliveredAt?: number;
   enqueuedAt?: number;

@@ -78,8 +78,8 @@ test(
           formatAgentInternalEventsForPrompt: () => "",
           INTERNAL_MESSAGE_CHANNEL: "webchat",
           log: { info() {}, error() {} },
-          deliverSubagentAnnouncement: async (params) => {
-            const event = params.internalEvents[0];
+          enqueueMediaCompletion: async (entry) => {
+            const event = entry.event;
             captured = event.mediaIdentities;
             assert.equal(
               captured.length,

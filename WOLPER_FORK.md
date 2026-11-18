@@ -6,7 +6,8 @@ The patches originate in `LIFE-Electronic/wolper` at
 `openclaw-patches/2026.5.28/`; `test/wolper/provenance.json` records their input
 checksums and source commit. The fork applies their behavior directly to source.
 
-The fixes cover copied-media receipts, Webchat completion routing, prompt-lock
+The fixes cover copied-media receipts, Webchat completion routing and durable
+completion handoff, prompt-lock
 disposal, heartbeat identity, durable BlueHouse background delivery, transcript
 retry identity, cron validation, cron job-name snapshots, and native session
 copies for opted-in managed channels.
@@ -123,6 +124,37 @@ and stale text-only authored model definitions. Candidate image
 acceptance, fresh-container assertions, and guarded explicit-target activation
 are documented in
 [Wolper PR 134](https://github.com/LIFE-Electronic/wolper/pull/134).
+
+## Media completion handoff
+
+Successful image, video and music generation remains native `succeeded` (Gateway
+`completed`) even if completion delivery times out. The shared scheduler in
+`src/agents/tools/media-generate-background-shared.ts` records generation success
+before persisting its completion event. Only generation errors fail the task;
+a notification failure cannot send a second generation-failure event.
+
+`src/agents/media-completion-runtime.ts` owns the Gateway worker and
+`src/agents/media-completion-queue.ts` persists work in the existing session-delivery
+queue. Native `deliveryStatus` tracks `pending`, `delivered` or `failed` separately.
+`src/agents/media-completion-receipt.ts` acknowledges committed session input or
+committed steering, without waiting for the requester agent's final reply. Initial
+Gateway admission is not a receipt. Busy sessions defer until idle; bounded retries
+and restart recovery reuse the original event, task and idempotency key without
+calling a generation provider. Persisted input recovers a lost Gateway response.
+
+Requester-aware Webchat/external routing and generated-byte attachment verification
+remain in place. Those attachment checks no longer decide whether generation
+succeeded. Focused scheduler, receipt, queue and handoff tests cover rejection,
+busy sessions, response loss, restart recovery and duplicate admission.
+`test/wolper/media-completion-wire-smoke.mjs` exercises the installed Gateway with
+local model/provider doubles and inspects actual task/transcript state while the
+requester remains busy beyond the completion timeout.
+
+Wolper [PR 151](https://github.com/LIFE-Electronic/wolper/pull/151) owns candidate
+image and fresh-container acceptance, guarded image activation, and a separate
+historical Wolper task repair. Development validation precedes production
+activation. Historical native ledgers and original assistant messages remain
+unchanged; this fork does not repair or regenerate old jobs.
 
 ## Verify source changes
 

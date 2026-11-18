@@ -23,6 +23,7 @@ export type GatewayServerMutableState = {
   skillsChangeUnsub: () => void;
   channelHealthMonitor: ChannelHealthMonitor | null;
   stopModelPricingRefresh: () => void;
+  stopMediaCompletionDelivery: () => void;
   mcpServer: { port: number; close: () => Promise<void> } | undefined;
   configReloader: GatewayConfigReloaderHandle;
   agentUnsub: (() => void) | null;
@@ -56,6 +57,7 @@ export function createGatewayServerMutableState(): GatewayServerMutableState {
     skillsChangeUnsub: () => {},
     channelHealthMonitor: null as ChannelHealthMonitor | null,
     stopModelPricingRefresh: () => {},
+    stopMediaCompletionDelivery: () => {},
     mcpServer: undefined as { port: number; close: () => Promise<void> } | undefined,
     configReloader: { stop: async () => {} } satisfies GatewayConfigReloaderHandle,
     agentUnsub: null as (() => void) | null,

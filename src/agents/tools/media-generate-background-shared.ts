@@ -4,26 +4,22 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import {
   completeTaskRunByRunId,
   createRunningTaskRun,
   failTaskRunByRunId,
   recordTaskRunProgressByRunId,
+  setDetachedTaskDeliveryStatusByRunId,
 } from "../../tasks/detached-task-runtime.js";
-import { normalizeDeliveryContext, type DeliveryContext } from "../../utils/delivery-context.js";
-import {
-  INTERNAL_MESSAGE_CHANNEL,
-  isDeliverableMessageChannel,
-  isInternalMessageChannel,
-} from "../../utils/message-channel.js";
+import type { DeliveryContext } from "../../utils/delivery-context.js";
+import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import {
   mediaUrlsFromGeneratedAttachments,
   type AgentGeneratedAttachment,
 } from "../generated-attachments.js";
 import { captureMediaIdentities } from "../generated-media-identity.js";
-import { formatAgentInternalEventsForPrompt, type AgentInternalEvent } from "../internal-events.js";
-import { deliverSubagentAnnouncement } from "../subagent-announce-delivery.js";
+import type { AgentInternalEvent } from "../internal-events.js";
+import { enqueueMediaCompletion } from "../media-completion-runtime.js";
 
 const log = createSubsystemLogger("agents/tools/media-generate-background-shared");
 const MEDIA_GENERATION_TASK_KEEPALIVE_INTERVAL_MS = 60_000;
@@ -222,6 +218,11 @@ function completeMediaGenerationTaskRun(params: {
       progressSummary: `Generated ${params.count} ${params.generatedLabel}${params.count === 1 ? "" : "s"}`,
       terminalSummary: `Generated ${params.count} ${params.generatedLabel}${params.count === 1 ? "" : "s"} with ${params.provider}/${params.model}${target ? ` -> ${target}` : ""}.`,
     });
+    log.info("Media generation succeeded; completion delivery is independent", {
+      taskId: params.handle.taskId,
+      runId: params.handle.runId,
+      count: params.count,
+    });
   } finally {
     clearAgentRunContext(params.handle.runId);
   }
@@ -370,48 +371,12 @@ export function scheduleMediaGenerationTaskCompletion<
   onWakeFailure: (message: string, meta?: Record<string, unknown>) => void;
 }) {
   params.scheduleBackgroundWork(async () => {
+    let executed: T;
     try {
-      const executed = await withMediaGenerationTaskKeepalive({
+      executed = await withMediaGenerationTaskKeepalive({
         handle: params.handle,
         progressSummary: params.progressSummary,
         run: params.run,
-      });
-      params.lifecycle.recordTaskProgress({
-        handle: params.handle,
-        progressSummary: "Generated media; delivering completion",
-      });
-      let completionDelivered = false;
-      try {
-        completionDelivered = await params.lifecycle.wakeTaskCompletion({
-          config: params.config,
-          handle: params.handle,
-          status: "ok",
-          statusLabel: "completed successfully",
-          result: executed.wakeResult,
-          attachments: executed.attachments,
-          mediaUrls: executed.mediaUrls,
-        });
-      } catch (error) {
-        params.onWakeFailure(
-          `${params.toolName} completion wake failed after successful generation`,
-          {
-            taskId: params.handle?.taskId,
-            runId: params.handle?.runId,
-            error,
-          },
-        );
-      }
-      if (!completionDelivered) {
-        throw new Error(
-          `${params.toolName} completion delivery failed after successful generation`,
-        );
-      }
-      params.lifecycle.completeTaskRun({
-        handle: params.handle,
-        provider: executed.provider,
-        model: executed.model,
-        count: executed.count,
-        paths: executed.paths,
       });
     } catch (error) {
       params.lifecycle.failTaskRun({
@@ -425,6 +390,36 @@ export function scheduleMediaGenerationTaskCompletion<
         statusLabel: "failed",
         result: formatErrorMessage(error),
       });
+      return;
+    }
+    // The provider result is final. Notification latency or failure cannot undo
+    // saved media or ask the user to pay for the same generation again.
+    params.lifecycle.completeTaskRun({
+      handle: params.handle,
+      provider: executed.provider,
+      model: executed.model,
+      count: executed.count,
+      paths: executed.paths,
+    });
+    try {
+      await params.lifecycle.wakeTaskCompletion({
+        config: params.config,
+        handle: params.handle,
+        status: "ok",
+        statusLabel: "completed successfully",
+        result: executed.wakeResult,
+        attachments: executed.attachments,
+        mediaUrls: executed.mediaUrls,
+      });
+    } catch (error) {
+      params.onWakeFailure(
+        `${params.toolName} completion wake failed after successful generation`,
+        {
+          taskId: params.handle?.taskId,
+          runId: params.handle?.runId,
+          error,
+        },
+      );
     }
   });
 }
@@ -477,102 +472,35 @@ async function wakeMediaGenerationTaskCompletion(params: {
       }),
     },
   ];
-  const triggerMessage =
-    formatAgentInternalEventsForPrompt(internalEvents) ||
-    `A ${params.completionLabel} generation task finished. Process the completion update now.`;
-  const delivery = await deliverSubagentAnnouncement({
-    requesterSessionKey: params.handle.requesterSessionKey,
-    targetRequesterSessionKey: params.handle.requesterSessionKey,
-    announceId,
-    triggerMessage,
-    steerMessage: triggerMessage,
-    internalEvents,
-    summaryLine: params.handle.taskLabel,
-    requesterSessionOrigin: params.handle.requesterOrigin,
-    requesterOrigin: params.handle.requesterOrigin,
-    completionDirectOrigin: params.handle.requesterOrigin,
-    directOrigin: params.handle.requesterOrigin,
-    sourceSessionKey: `${params.toolName}:${params.handle.taskId}`,
-    sourceChannel: INTERNAL_MESSAGE_CHANNEL,
-    sourceTool: params.toolName,
-    requesterIsSubagent: false,
-    expectsCompletionMessage: true,
-    bestEffortDeliver: true,
-    directIdempotencyKey: announceId,
-  });
-  if (delivery.delivered) {
-    log.info("Media generation completion delivery verified", {
+  try {
+    await enqueueMediaCompletion({
+      kind: "mediaCompletion",
+      sessionKey: params.handle.requesterSessionKey,
+      taskId: params.handle.taskId,
+      runId: params.handle.runId,
+      toolName: params.toolName,
+      idempotencyKey: announceId,
+      requesterOrigin: params.handle.requesterOrigin,
+      event: internalEvents[0],
+    });
+    log.info("Media generation completion queued for session delivery", {
       taskId: params.handle.taskId,
       runId: params.handle.runId,
       status: params.status,
-      channel: params.handle.requesterOrigin?.channel,
-    });
-    return true;
-  }
-  if (params.status === "error") {
-    const delivered = await tryDeliverMediaGenerationFailureDirect({
-      config: params.config,
-      handle: params.handle,
-      toolName: params.toolName,
-      completionLabel: params.completionLabel,
-      result: params.result,
-    });
-    if (delivered) {
-      return true;
-    }
-  }
-  if (delivery.error) {
-    log.error("Media generation completion wake failed; requester session was not woken", {
-      taskId: params.handle.taskId,
-      runId: params.handle.runId,
-      toolName: params.toolName,
-      error: delivery.error,
-    });
-  }
-  return false;
-}
-
-async function tryDeliverMediaGenerationFailureDirect(params: {
-  config?: OpenClawConfig;
-  handle: MediaGenerationTaskHandle;
-  toolName: string;
-  completionLabel: string;
-  result: string;
-}): Promise<boolean> {
-  const origin = normalizeDeliveryContext(params.handle.requesterOrigin);
-  if (!origin?.channel || !origin.to || !isDeliverableMessageChannel(origin.channel)) {
-    return false;
-  }
-  const label = `${params.completionLabel[0]?.toUpperCase() ?? "M"}${params.completionLabel.slice(1)}`;
-  const agentId = resolveAgentIdFromSessionKey(params.handle.requesterSessionKey);
-  const idempotencyKey = `${params.toolName}:${params.handle.taskId}:error:direct`;
-  try {
-    const { sendMessage } = await import("../../tasks/task-registry-delivery-runtime.js");
-    await sendMessage({
-      cfg: params.config,
-      channel: origin.channel,
-      to: origin.to,
-      accountId: origin.accountId,
-      threadId: origin.threadId,
-      content: `${label} generation failed: ${params.result}`,
-      requesterSessionKey: params.handle.requesterSessionKey,
-      agentId,
-      idempotencyKey,
-      mirror: {
-        sessionKey: params.handle.requesterSessionKey,
-        agentId,
-        idempotencyKey,
-      },
     });
     return true;
   } catch (error) {
-    log.warn("Direct media generation failure delivery failed; falling back to agent wake", {
-      taskId: params.handle.taskId,
+    setDetachedTaskDeliveryStatusByRunId({
       runId: params.handle.runId,
-      toolName: params.toolName,
+      runtime: "cli",
+      sessionKey: params.handle.requesterSessionKey,
+      deliveryStatus: "failed",
+    });
+    log.error("Media completion could not be persisted; generation outcome retained", {
+      taskId: params.handle.taskId,
       error,
     });
-    return false;
+    throw error;
   }
 }
 

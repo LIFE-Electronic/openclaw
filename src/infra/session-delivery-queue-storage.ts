@@ -11,6 +11,7 @@ import {
   resolveJsonDurableQueueEntryPaths,
   writeJsonDurableQueueEntry,
 } from "@openclaw/fs-safe/store";
+import type { AgentInternalEvent } from "../agents/internal-events.js";
 import type { ChatType } from "../channels/chat-type.js";
 import { resolveStateDir } from "../config/paths.js";
 import { generateSecureUuid } from "./secure-random.js";
@@ -41,6 +42,7 @@ export type SessionDeliveryRoute = {
 };
 
 export type QueuedSessionDeliveryPayload =
+  | MediaCompletionDelivery
   | ({
       kind: "systemEvent";
       sessionKey: string;
@@ -58,6 +60,18 @@ export type QueuedSessionDeliveryPayload =
       deliveryContext?: SessionDeliveryContext;
       idempotencyKey?: string;
     } & SessionDeliveryRetryPolicy);
+
+/** The original generated result is retained until its session accepts it. */
+export type MediaCompletionDelivery = {
+  kind: "mediaCompletion";
+  sessionKey: string;
+  taskId: string;
+  runId: string;
+  toolName: string;
+  idempotencyKey: string;
+  requesterOrigin?: SessionDeliveryContext;
+  event: AgentInternalEvent;
+} & SessionDeliveryRetryPolicy;
 
 export type QueuedSessionDelivery = QueuedSessionDeliveryPayload & {
   id: string;

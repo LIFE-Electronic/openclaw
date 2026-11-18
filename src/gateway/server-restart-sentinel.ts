@@ -231,7 +231,9 @@ function resolveQueuedRestartContinuationMessageId(entry: QueuedAgentTurnSession
   return entry.messageId;
 }
 
-function resolveQueuedSessionDeliveryContext(entry: QueuedSessionDelivery):
+function resolveQueuedSessionDeliveryContext(
+  entry: Exclude<QueuedSessionDelivery, { kind: "mediaCompletion" }>,
+):
   | {
       channel?: string;
       to?: string;
@@ -254,6 +256,9 @@ async function deliverQueuedSessionDelivery(params: {
   deps: CliDeps;
   entry: QueuedSessionDelivery;
 }) {
+  if (params.entry.kind === "mediaCompletion") {
+    throw new Error("Media completions are owned by the media delivery worker");
+  }
   const { cfg, entry, storePath, canonicalKey } = loadSessionEntry(params.entry.sessionKey);
   const queuedDeliveryContext = resolveQueuedSessionDeliveryContext(params.entry);
 
@@ -476,6 +481,7 @@ export async function recoverPendingRestartContinuationDeliveries(params: {
     deliver: (entry) => deliverQueuedSessionDelivery({ deps: params.deps, entry }),
     log: params.log ?? log,
     maxEnqueuedAt: params.maxEnqueuedAt,
+    selectEntry: (entry) => entry.kind !== "mediaCompletion",
   });
 }
 
